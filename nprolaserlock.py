@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class LaserLock():
+class NPROLaserLock():
     def __init__(self, sps, pll, 
                 C1, C2,
                 Ki1, Kii1,
@@ -29,7 +29,7 @@ class LaserLock():
                     },
                 off=[None]
                 ):
-        """ class to simulate PM-based laser lock
+        """ class to simulate NPRO laser lock
         Args:
             sps: system clock frequency (Hz)
             pll: PLL instance
