@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class LOOP:
-    def __init__(self, sps):
+    def __init__(self, sps, component_list=None):
         """
         Base class for defining a control loop system.
 
@@ -22,6 +22,8 @@ class LOOP:
         ----------
         sps : float
             Loop sample rate in Hz.
+        component_list : list of Component
+            If provided, add all components in this list to the loop. 
 
         Attributes
         ----------
@@ -47,6 +49,11 @@ class LOOP:
         self.Gf = None
         self.Hf = None
         self.Ef = None
+
+        if component_list is not None:
+            for comp in component_list:
+                self.add_component(comp)
+            self.update()
 
     def update(self):
         """
