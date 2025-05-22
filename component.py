@@ -2,7 +2,7 @@ import numpy as np
 import control
 import copy
 from functools import partial
-import scipy.signal as scisig
+import scipy.signal as sig
 import matplotlib.pyplot as plt
 from looptools import auxiliary as aux
 from looptools import dimension as dim
@@ -118,7 +118,7 @@ class Component:
 
         # todo: remove this after the consistency check with tf_group_delay() in auxiliary.py 
 
-        _, delay = scisig.group_delay((self.nume, self.deno), omega, fs=2*np.pi*self.sps)
+        _, delay = sig.group_delay((self.nume, self.deno), omega, fs=2*np.pi*self.sps)
         return delay/self.sps
 
     def bode(self, omega, dB=False, deg=True, wrap=True):

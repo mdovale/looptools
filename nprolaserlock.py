@@ -4,8 +4,6 @@ from looptools.dimension import Dimension
 from looptools.components import *
 from looptools.loop import LOOP
 from looptools import auxiliary as aux
-from pypm.optical import photoreceiver as ph
-import pyhexagon.auxiliary as hexaux
 import logging
 logger = logging.getLogger(__name__)
 
@@ -122,7 +120,7 @@ class LaserLock():
         bode={'f':f, 'mag':mag, 'phase':phase}
         asd_prop = bode['mag'] * asd
         unit_prop = unit
-        rms = hexaux.integral_rms(f, asd_prop, [0, np.inf])
+        rms = aux.integral_rms(f, asd_prop, [0, np.inf])
         return asd_prop, unit_prop, bode, rms
         
 
@@ -191,7 +189,7 @@ class LaserLockPZT(LOOP):
         if "p_Fcond" not in off:
             self.add_component(ActuatorComponent("p_Fcond", self.sps, Kc_pzt, Fc_pzt, Dimension(dimensionless=True)))
             if OPpzt is not None:
-                self.add_component(ActuatorComponent("p_Fop", self.sps, 1.0, ph.OpAmp_dict[OPpzt]["GBP"]/Kc_pzt), Dimension(dimensionless=True))
+                self.add_component(ActuatorComponent("p_Fop", self.sps, 1.0, OpAmp_dict[OPpzt]["GBP"]/Kc_pzt), Dimension(dimensionless=True))
 
         # : Laser PZT actuator efficiency [Hz/V]
         if "p_Fplant" not in off:
@@ -298,7 +296,7 @@ class LaserLockTemp(LOOP):
         if "t_Fcond" not in off:
             self.add_component(ActuatorComponent("t_Fcond", self.sps, Kc_temp, Fc_temp, Dimension(dimensionless=True)))
             if OPtemp is not None:
-                self.add_component(ActuatorComponent("t_Fop", self.sps, 1.0, ph.OpAmp_dict[OPtemp]["GBP"]/Kc_temp), Dimension(dimensionless=True))                    
+                self.add_component(ActuatorComponent("t_Fop", self.sps, 1.0, OpAmp_dict[OPtemp]["GBP"]/Kc_temp), Dimension(dimensionless=True))                    
 
         # : Laser temperature actuator efficiency [Hz/V]
         if "t_Fplant" not in off:

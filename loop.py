@@ -5,7 +5,6 @@ from functools import partial
 from looptools.component import Component
 from looptools.dimension import Dimension
 import looptools.auxiliary as aux
-import pyhexagon.auxiliary as hexaux
 import logging
 logger = logging.getLogger(__name__)
 
@@ -168,7 +167,7 @@ class LOOP:
         unit_prop = component.unit * unit
 
         # : compute RMS of the new ASD
-        rms = hexaux.integral_rms(f, asd_prop, [0, np.inf])
+        rms = aux.integral_rms(f, asd_prop, [0, np.inf])
 
         return asd_prop, unit_prop, bode, rms
 

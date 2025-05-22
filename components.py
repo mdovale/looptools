@@ -7,6 +7,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def set_opamp_parameters(GBP, AOL, Ccm, Cdiff, dB=True):
+	""" Generate an OpAmp parameter dictionary
+
+    Reference: https://www.tij.co.jp/jp/lit/an/sboa122/sboa122.pdf?ts=1662305678857
+
+	Args:
+		GBP: Gain bandwidth (Hz)
+		AOL: open-loop gain (dB)
+		Ccm: common-mode capacitance (F)
+		Cdiff: differntial capacitance (F)
+	"""
+
+	if dB:
+		AOL_lin = 10**(AOL/20)
+	else:
+		AOL_lin = AOL
+	omegaA = 2 * np.pi * GBP / (AOL_lin - 1)
+
+	return {"GBP": GBP, "AOL": AOL_lin, "omegaA": omegaA, "Ccm": Ccm, "Cdiff": Cdiff}
+
+# : Dictionary of OpAmps
+OpAmp_dict = {
+	"LMH6624": set_opamp_parameters(GBP=1.5e9, AOL=81, Ccm=0.9e-12, Cdiff=2.0e-12, dB=True), # https://www.ti.com/lit/ds/symlink/lmh6624.pdf
+	"OP27": set_opamp_parameters(GBP=8e6, AOL=1.8e6, Ccm=8e-12, Cdiff=8e-12, dB=False), # https://www.analog.com/media/en/technical-documentation/data-sheets/op27.pdf
+}
+
 class PDComponent(Component):
     def __init__(self, name, sps, Amp):
         self._Amp = Amp
