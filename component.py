@@ -10,49 +10,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
-	""" compute a transfer function
-	Args:
-		f: fourier frequencies (Hz)
-		com: Component instance
-		extrapolate: extrapolate the tf in a power law
-		f_trans: transition frequency
-		power: power in power law
-		size: point size to be used for fit (not needed for solver)
-		solver: use solver or not (not = fit)
-	"""
-
-	omega = 2*np.pi*f
-	z = np.exp(1j*omega/com.sps)
-
-	n_nume = com.nume.size
-	n_deno = com.deno.size
-	numerator = 0
-	denominator = 0
-	for i, n in enumerate(com.nume):
-		numerator += n*z**(n_nume-(i+1))
-	for i, d in enumerate(com.deno):
-		denominator += d*z**(n_deno-(i+1))
-	tf = numerator/denominator
-
-	if extrapolate:
-		tf = aux.tf_power_extrapolate(f, tf, f_trans=f_trans, power=power, size=size, solver=solver)
-
-	return tf
-
-
 class Component:
     def __init__(self, name, sps, nume=np.array([1]), deno=np.array([1]), tf=None, unit=dim.Dimension(dimensionless=True)):
-        """ class for a component of a control loop
-        Args:
-            name: name of this component
-            nume: numerator coefficients
-            deno: denominator coefficients
-            sps: loop rate
-            tf: TF instance. If not None, this component is defined by it
-            unit: unit of this component [Dimension class]
         """
+        Represents a component in a control loop with its transfer function.
 
+        This class encapsulates both symbolic and frequency-domain descriptions
+        of a transfer function element, and supports arithmetic composition,
+        unit handling, Bode analysis, and integration with a control loop.
+
+        Parameters
+        ----------
+        name : str
+            Name of the component.
+        sps : float
+            Sample rate of the control loop (Hz).
+        nume : array_like, optional
+            Numerator coefficients of the transfer function.
+        deno : array_like, optional
+            Denominator coefficients of the transfer function.
+        tf : control.TransferFunction, optional
+            Optional transfer function object; overrides `nume` and `deno` if given.
+        unit : Dimension, optional
+            Unit of the component.
+
+        Attributes
+        ----------
+        TE : control.TransferFunction
+            The symbolic transfer function representation.
+        TF : callable
+            Callable function for evaluating the transfer function in frequency domain.
+        unit : Dimension
+            Unit associated with the component.
+        sps : float
+            Sample rate in Hz.
+        """
         self.name = name
         self.sps = sps
         self.unit = unit
@@ -71,11 +63,19 @@ class Component:
         self.update()
 
     def __add__(self, other):
-        """ define + operator
-        Args:
-            other: another Component instance
         """
+        Define parallel addition (+) between two components.
 
+        Parameters
+        ----------
+        other : Component
+            The other component to add.
+
+        Returns
+        -------
+        Component
+            New component representing the parallel connection.
+        """
         new_TF = control.parallel(self.TE, other.TE)
         new = Component(self.name+other.name, sps=self.sps, tf=new_TF, unit=self.unit)
         new.TF = partial(aux.add_transfer_function, tf1=self.TF, tf2=other.TF)
@@ -83,11 +83,19 @@ class Component:
         return new
 
     def __mul__(self, other):
-        """ define * operator
-        Args:
-            other: another Component instance
         """
+        Define series multiplication (*) between two components.
 
+        Parameters
+        ----------
+        other : Component
+            The other component to multiply.
+
+        Returns
+        -------
+        Component
+            New component representing the series connection.
+        """
         new_unit = self.unit * other.unit
         new_TF = control.series(self.TE, other.TE)
         new = Component(self.name+other.name, sps=self.sps, tf=new_TF, unit=new_unit)
@@ -96,6 +104,16 @@ class Component:
         return new
 
     def modify(self, new_nume, new_deno=None):
+        """
+        Modify the transfer function coefficients of the component.
+
+        Parameters
+        ----------
+        new_nume : array_like
+        New numerator coefficients.
+        new_deno : array_like, optional
+        New denominator coefficients; if None, original denominator is kept.
+        """
         self.nume = np.array([new_nume])
         if new_deno != None:
             self.deno = np.array(self.deno)
@@ -104,6 +122,11 @@ class Component:
         self.TF = partial(transfer_function, com=self)
 
     def update(self):
+        """
+        Refresh internal symbolic and callable representations of the transfer function.
+
+        If part of a control loop, triggers any registered callbacks.
+        """
         self.TE = control.tf(self.nume, self.deno, 1/self.sps)
         self.TE.name = self.name
         self.TF = partial(transfer_function, com=self)
@@ -111,39 +134,72 @@ class Component:
             self._loop.notify_callbacks()
 
     def group_delay(self, omega):
-        """ compute a group delay
-        Args:
-            omega: angular fourier frequency (rad*Hz)
         """
+        Compute the group delay of the component.
 
+        Parameters
+        ----------
+        omega : array_like
+            Angular frequency vector (rad/s).
+
+        Returns
+        -------
+        array_like
+            Group delay in seconds.
+        """
         # todo: remove this after the consistency check with tf_group_delay() in auxiliary.py 
-
         _, delay = sig.group_delay((self.nume, self.deno), omega, fs=2*np.pi*self.sps)
         return delay/self.sps
 
     def bode(self, omega, dB=False, deg=True, wrap=True):
-        """ compute a bode diagram
-        Args:
-            omega: angular fourier frequency (rad*Hz)
-            dB: magnitude in dB or not
-            deg: phase in degree or not
-            wrap: wrap phase or not
         """
+        Compute the Bode plot data (magnitude and phase) of the component.
 
+        Parameters
+        ----------
+        omega : array_like
+            Angular frequency vector (rad/s).
+        dB : bool, optional
+            If True, returns magnitude in dB.
+        deg : bool, optional
+            If True, returns phase in degrees.
+        wrap : bool, optional
+            If True, wraps phase between -π and π.
+
+        Returns
+        -------
+        tuple
+            (bode_dict, ugf, margin) where:
+            - bode_dict: dict with 'f', 'mag', and 'phase'
+            - ugf: unity-gain frequency
+            - margin: phase margin at UGF
+        """
         bode, ugf, margin = compute_bode(self.TE, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
         #bode, ugf, margin = compute_bode(self.TF, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
         return bode, ugf, margin
 
     def bode_plot(self, omega, returns=True, dB=False, deg=True, wrap=True):
-        """ generator/display a bode plot
-        Args:
-            omega: angular fourier frequency (rad*Hz)
-            returns: return bode and ugf or not
-            dB: magnitude in dB or not
-            deg: phase in degree or not
-            wrap: wrap phase or not
         """
+        Plot the Bode diagram of the component.
 
+        Parameters
+        ----------
+        omega : array_like
+            Angular frequency vector (rad/s).
+        returns : bool, optional
+            If True, returns Bode data and metrics.
+        dB : bool, optional
+            If True, displays magnitude in dB.
+        deg : bool, optional
+            If True, displays phase in degrees.
+        wrap : bool, optional
+            If True, wraps phase between -π and π.
+
+        Returns
+        -------
+        tuple, optional
+            (bode_dict, ugf, margin) if `returns` is True.
+        """
         bode, ugf, margin = self.bode(omega, dB=dB, deg=deg, wrap=wrap)
         plt.figure(figsize=(15,10))
         plt.subplots_adjust(wspace=0.4, hspace=0.15)
@@ -173,16 +229,32 @@ class Component:
             return bode, ugf, margin
 
 def compute_bode(tf, omega, sps=80e6, dB=False, deg=True, wrap=True):
-    """ compute a bode diagram
-    Args:
-        tf: tf instance
-        omega: angular fourier frequency (rad*Hz)
-        sps: sampling rate
-        dB: magnitude in dB or not
-        deg: phase in degree or not
-        wrap: wrap phase or not
     """
+    Compute Bode diagram data and loop performance metrics.
 
+    Parameters
+    ----------
+    tf : control.TransferFunction
+        Transfer function to analyze.
+    omega : array_like
+        Angular frequency vector (rad/s).
+    sps : float, optional
+        Sampling rate (Hz).
+    dB : bool, optional
+        Return magnitude in dB if True.
+    deg : bool, optional
+        Return phase in degrees if True.
+    wrap : bool, optional
+        Wrap phase between -π and π if True.
+
+    Returns
+    -------
+    tuple
+        (bode_dict, ugf, margin)
+        - bode_dict: dict with 'f', 'mag', and 'phase'
+        - ugf: unity-gain frequency
+        - margin: phase margin at UGF
+    """
     # : compute bode
     mag, phase, _ = control.bode(tf, omega, dB=False, plot=False)
     fourier_freq = omega/(2*np.pi) # Hz of control.bode does not work for some reason
@@ -200,3 +272,52 @@ def compute_bode(tf, omega, sps=80e6, dB=False, deg=True, wrap=True):
     ugf, margin = aux.get_margin([mag,phase], fourier_freq, dB=dB, deg=deg)
 
     return bode, ugf, margin
+
+def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
+    """
+    Evaluate the discrete-time transfer function of a Component in the frequency domain.
+
+    Uses the Z-transform evaluated on the unit circle to compute the transfer function
+    response at given Fourier frequencies. Optionally applies power-law extrapolation
+    to extend the response outside the design band.
+
+    Parameters
+    ----------
+    f : array_like
+        Fourier frequencies in Hz.
+    com : Component
+        Component instance whose transfer function is evaluated.
+    extrapolate : bool, optional
+        If True, apply power-law extrapolation to extend the response.
+    f_trans : float, optional
+        Transition frequency (Hz) for the power-law extrapolation.
+    power : float, optional
+        Power-law exponent used in extrapolation (e.g., -2 for 1/f² roll-off).
+    size : int, optional
+        Number of points used in extrapolation fitting (not used if `solver=True`).
+    solver : bool, optional
+        If True, use solver-based extrapolation. Otherwise use simple fit.
+
+    Returns
+    -------
+    array_like
+        Complex-valued frequency response evaluated at the specified frequencies.
+    """
+
+    omega = 2*np.pi*f
+    z = np.exp(1j*omega/com.sps)
+
+    n_nume = com.nume.size
+    n_deno = com.deno.size
+    numerator = 0
+    denominator = 0
+    for i, n in enumerate(com.nume):
+        numerator += n*z**(n_nume-(i+1))
+    for i, d in enumerate(com.deno):
+        denominator += d*z**(n_deno-(i+1))
+    tf = numerator/denominator
+
+    if extrapolate:
+        tf = aux.tf_power_extrapolate(f, tf, f_trans=f_trans, power=power, size=size, solver=solver)
+
+    return tf
