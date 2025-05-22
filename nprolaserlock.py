@@ -29,33 +29,77 @@ class NPROLaserLock():
                     },
                 off=[None]
                 ):
-        """ class to simulate NPRO laser lock
-        Args:
-            sps: system clock frequency (Hz)
-            pll: PLL instance
-            C1: shifted bit at the gain stage 1
-            C2: shifted bit at the gain stage 2
-            Ki1: I gain of a 1st digital controller
-            Kii1: II gain of a 1st digital controller
-            Kp2: P gain of a 2nd digital controller unique to temperature
-            Ki2: I gain of a 2nd digital controller unique to temperature
-            Kdac: DAC gain
-            Kc_pzt: Gain of an analog filter in a PZT loop
-            Fc_pzt: Corner frequency of an analog filter in a PZT loop
-            Ka_pzt: PZT actuator efficiency of a laser source
-            Fa_pzt: PZT response bandwidth
-            Kc_temp: Gain of an analog filter in a Temperature loop
-            Fc_temp: Corner frequency of an analog filter in a Temperature loop
-            Ka_temp: Temperature actuator efficiency of a laser source
-            Fa_temp: temperature response bandwidth
-            Nreg1: the number of registers which represents delays common for the entire laser-lock loop (e.g., IPU-PCU)
-            OPpzt: OpAmp for PZT analog servo
-            OPtemp: OpAmp for temperature analog servo
-            mode: 'frequency' or 'phase' lock
-            extrapolate: extrapolate PLL TF or not
-            f_trans: transition frequency (for PLL TF extrapolate)
-            power: power in power law (for PLL TF extrapolate)
-            off: name list of components NOT to be included
+        """
+        Composite model of a dual-loop NPRO laser frequency (or phase) lock system.
+
+        This class combines a fast PZT control loop and a slower temperature loop
+        to simulate the closed-loop frequency or phase locking of a Non-Planar Ring Oscillator (NPRO) laser.
+        It wraps together two `LOOP`-based subsystems (`LaserLockPZT` and `LaserLockTemp`) and manages their
+        shared structure and synchronization.
+
+        Parameters
+        ----------
+        sps : float
+            System clock frequency in Hz.
+        pll : Component
+            Phase-locked loop model providing the input sensing transfer function.
+        C1 : int
+            Bit shift gain stage 1 (digital).
+        C2 : int
+            Bit shift gain stage 2 (digital, used only in temperature loop).
+        Ki1 : float
+            Integral gain of the first digital controller (common to both loops).
+        Kii1 : float
+            Double-integrator gain of the first digital controller (common to both loops).
+        Kp2 : float
+            Proportional gain of the second digital controller (temperature loop only).
+        Ki2 : float
+            Integral gain of the second digital controller (temperature loop only).
+        Kdac : float
+            DAC gain [V/count].
+        Kc_pzt : float
+            Analog servo gain in the PZT path.
+        Fc_pzt : float
+            Corner frequency of the analog PZT servo.
+        Ka_pzt : float
+            Actuator gain of the PZT tuning mechanism [Hz/V].
+        Fa_pzt : float
+            Bandwidth of the PZT actuator [Hz].
+        Kc_temp : float
+            Analog servo gain in the temperature path.
+        Fc_temp : float
+            Corner frequency of the analog temperature servo.
+        Ka_temp : float
+            Actuator gain of the temperature tuning mechanism [Hz/V].
+        Fa_temp : float
+            Bandwidth of the temperature actuator [Hz].
+        Nreg1 : int
+            Number of registers used to model shared DSP delay in the loop.
+        OPpzt : str, optional
+            Label of operational amplifier used in the PZT analog path (lookup from `OpAmp_dict`).
+        OPtemp : str, optional
+            Label of operational amplifier used in the temperature analog path.
+        mode : {'frequency', 'phase'}, default='frequency'
+            Determines whether the loop stabilizes frequency or phase.
+        extrapolate : dict, optional
+            Dictionary configuring transfer function extrapolation for PLL and controllers.
+            Keys: {'Fpll', 'p_II1', 't_II1'} → Values: [bool, f_trans, power] or [bool, f_trans].
+        off : list of str or [None], optional
+            List of component names to exclude from loop construction.
+
+        Attributes
+        ----------
+        pzt : LaserLockPZT
+            The fast PZT-based control loop.
+        temp : LaserLockTemp
+            The slow temperature-based control loop.
+        Gf : Callable
+            Closed-loop forward transfer function: `Gf(f) = G_pzt(f) + G_temp(f)`.
+
+        Notes
+        -----
+        This structure enables modeling realistic lock behavior with multiple control paths
+        acting on the same frequency tuning mechanism, each with different dynamics.
         """
         self.sps = sps
 
@@ -136,24 +180,55 @@ class LaserLockPZT(LOOP):
                 OPpzt, off=[None],
                 extrapolate=[False,1e2]
                 ):
-        """ class to simulate PM-based laser lock
-        Args:
-            sps: system clock frequency (Hz)
-            pll: PLL instance
-            C1: shifted bit at the gain stage 1
-            Ki1: I gain of a 1st digital controller
-            Kii1: II gain of a 1st digital controller
-            Kdac: DAC gain
-            Kc_pzt: Gain of an analog filter in a PZT loop
-            Fc_pzt: Corner frequency of an analog filter in a PZT loop
-            Ka_pzt: PZT actuator efficiency of a laser source
-            Fa_pzt: PZT response bandwidth
-            Nreg1: the number of registers which represents delays common for the entire laser-lock loop (e.g., IPU-PCU)
-            OPpzt: OpAmp for PZT analog servo
-            off: name list of components NOT to be included
-            extrapolate: extrapolation parameters for II1, [bool, f_trans] where f_trans: transition frequency)
         """
+        Simulates a fast PZT-based feedback loop for laser frequency control.
 
+        This subclass of `LOOP` builds a control chain that models the fast response of a 
+        piezoelectric actuator used to finely tune the laser frequency. It includes gain stages,
+        digital controllers, DAC, analog filters, actuator dynamics, and DSP delays.
+
+        Parameters
+        ----------
+        sps : float
+            System clock frequency in Hz.
+        pll : Component
+            PLL component representing sensing transfer function.
+        C1 : int
+            Shift bit for gain stage 1.
+        Ki1 : float
+            Integral gain of the digital controller.
+        Kii1 : float
+            Double-integrator gain of the digital controller.
+        Kdac : float
+            DAC gain [V/count].
+        Kc_pzt : float
+            Analog servo gain in the PZT path.
+        Fc_pzt : float
+            Corner frequency of the analog PZT servo.
+        Ka_pzt : float
+            Actuator gain of the PZT tuning mechanism [Hz/V].
+        Fa_pzt : float
+            Bandwidth of the PZT actuator [Hz].
+        Nreg1 : int
+            Number of DSP registers simulating control delay.
+        OPpzt : str or None
+            Optional operational amplifier name for modeling analog gain-bandwidth product effects.
+        off : list of str or [None], optional
+            List of component names to exclude.
+        extrapolate : list, optional
+            Parameters to extrapolate the controller's TF: [bool, f_trans].
+
+        Attributes
+        ----------
+        Gc : Component
+            Open-loop controller TF component.
+        Gf : Callable
+            Closed-loop transfer function G(f) from loop output to input.
+        Hf : Callable
+            Sensitivity function H(f).
+        Ef : Callable
+            Error transfer function E(f).
+        """
         super().__init__(sps)
         self.pll = pll
         self.C1 = C1
@@ -230,27 +305,66 @@ class LaserLockTemp(LOOP):
                 OPtemp, off,
                 extrapolate=[False,1e2]
                 ):
-        """ class to simulate PM-based laser lock
-        Args:
-            sps: system clock frequency (Hz)
-            pll: PLL instance
-            C1: shifted bit at the gain stage 1
-            C2: shifted bit at the gain stage 2
-            Ki1: I gain of a 1st digital controller
-            Kii1: II gain of a 1st digital controller
-            Kp2: P gain of a 2nd digital controller unique to temperature
-            Ki2: I gain of a 2nd digital controller unique to temperature
-            Kdac: DAC gain
-            Kc_temp: Gain of an analog filter in a Temperature loop
-            Fc_temp: Corner frequency of an analog filter in a Temperature loop
-            Ka_temp: Temperature actuator efficiency of a laser source
-            Fa_temp: temperature response bandwidth
-            Nreg1: the number of registers which represents delays common for the entire laser-lock loop (e.g., IPU-PCU)
-            OPtemp: OpAmp for temperature analog servo
-            off: name list of components NOT to be included
-            extrapolate: extrapolation parameters for II1, [bool, f_trans] where f_trans: transition frequency)
         """
+        Simulates a slow, temperature-based feedback loop for laser frequency control.
 
+        This subclass of `LOOP` models a thermal control path that compensates low-frequency drifts 
+        in the laser frequency. It includes dual digital controllers (cascaded), gain stages, DAC,
+        analog filters, actuator dynamics, and DSP delays.
+
+        Parameters
+        ----------
+        sps : float
+            System clock frequency in Hz.
+        pll : Component
+            PLL component representing sensing transfer function.
+        C1 : int
+            Shift bit for gain stage 1.
+        C2 : int
+            Shift bit for gain stage 2.
+        Ki1 : float
+            Integral gain of the shared digital controller.
+        Kii1 : float
+            Double-integrator gain of the shared digital controller.
+        Kp2 : float
+            Proportional gain of the second digital controller.
+        Ki2 : float
+            Integral gain of the second digital controller.
+        Kdac : float
+            DAC gain [V/count].
+        Kc_temp : float
+            Analog servo gain in the temperature path.
+        Fc_temp : float
+            Corner frequency of the analog temperature servo.
+        Ka_temp : float
+            Actuator gain of the temperature tuning mechanism [Hz/V].
+        Fa_temp : float
+            Bandwidth of the temperature actuator [Hz].
+        Nreg1 : int
+            Number of DSP registers simulating control delay.
+        OPtemp : str or None
+            Optional operational amplifier name for modeling analog gain-bandwidth product effects.
+        off : list of str or [None]
+            List of component names to exclude.
+        extrapolate : list, optional
+            Parameters to extrapolate the controller's TF: [bool, f_trans].
+
+        Attributes
+        ----------
+        Gc : Component
+            Open-loop controller TF component.
+        Gf : Callable
+            Closed-loop transfer function G(f) from loop output to input.
+        Hf : Callable
+            Sensitivity function H(f).
+        Ef : Callable
+            Error transfer function E(f).
+
+        Notes
+        -----
+        Used in conjunction with `LaserLockPZT` to provide full-range stabilization
+        of laser frequency over both fast and slow timescales.
+        """
         super().__init__(sps)
         self.pll = pll
         self.C1 = C1
