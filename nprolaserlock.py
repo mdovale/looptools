@@ -93,14 +93,14 @@ class NPROLaserLock():
         self.update_LaserLock()
 
     def __deepcopy__(self, memo):
-        new_obj = LaserLock.__new__(LaserLock)
+        new_obj = NPROLaserLock.__new__(NPROLaserLock)
         new_obj.temp = copy.deepcopy(self.temp)
         new_obj.pzt = copy.deepcopy(self.pzt)
         new_obj.sps = self.sps
-        new_obj.update_LaserLock()
+        new_obj.update_NPROLaserLock()
         return new_obj
 
-    def update_LaserLock(self):
+    def update_NPROLaserLock(self):
         self.Gf = partial(aux.add_transfer_function, tf1=self.pzt.Gf, tf2=self.temp.Gf)
         # self.Gc = self.temp.point_to_point_component(_from='Fpll', _to='Fpll', suppression=True) + self.pzt.point_to_point_component(_from='Fpll', _to=None, suppression=True)
         # self.Gc.name = "G"
