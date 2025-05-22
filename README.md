@@ -34,7 +34,26 @@ The library is designed with scientific control systems in mind—especially app
 ### Example
 
 ```python
-# Coming soon
+import numpy as np
+import matplotlib.pyplot as plt
+from looptools.component import Component
+from looptools.components import PIControllerComponent
+from looptools.loop import LOOP
+
+sps = 80e6 # Loop update frequency (Hz)
+frfr = np.logspace(np.log10(1e2), np.log10(40e6), int(1e5)) # Fourier frequency array (Hz)
+
+# Define components
+plant = Component("Plant", sps, tf="1/(s^2 + 10*s + 20)")
+sensor = Component("Sensor", sps, tf=1.0)
+controller = PIControllerComponent("Controller", sps, Kp=3, Ki=-3)
+
+# Build loop
+loop = LOOP(sps, [plant, sensor, controller])
+
+# Analyze
+fig, ax = loop.bode_plot(frfr)
+plt.show()
 ```
 
 ---

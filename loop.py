@@ -5,6 +5,7 @@ from functools import partial
 from looptools.component import Component
 from looptools.dimension import Dimension
 import looptools.auxiliary as aux
+import matplotlib.pyplot as plt
 import logging
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,6 @@ class LOOP:
         Gc, Hc, Ec, Gf, Hf, Ef : object or None
             Transfer function components (control and feedback path elements).
         """
-
         self.sps = sps
         self.components_dict = {}
         self.property_list = []
@@ -239,6 +239,98 @@ class LOOP:
         self.Hf = partial(self.tf_series, mode="H")
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
+    
+    def bode_plot(self, frfr, figsize=(5,5), which='all', axes=None, label=None, *args, **kwargs):
+        """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
+
+        Parameters
+        ----------
+        frfr : array_like
+            Frequency array in Hz at which to evaluate the transfer functions.
+        axes : tuple of matplotlib.axes.Axes, optional
+            Existing axes to plot into. If None, creates new figure and axes.
+        label : str, optional
+            Base label prefix for this loop's lines (e.g., 'Loop 1'). If None, defaults to empty.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plots.
+        axes : tuple of matplotlib.axes.Axes
+            The magnitude and phase axes used.
+        """
+        default_rc = {
+            'figure.dpi': 150,
+            'font.size': 8,
+            'axes.labelsize': 8,
+            'axes.titlesize': 9,
+            'xtick.labelsize': 8,
+            'ytick.labelsize': 8,
+            'axes.grid': True,
+            'grid.color': '#FFD700',
+            'grid.linewidth': 0.7,
+            'grid.linestyle': '--',
+            'axes.prop_cycle': plt.cycler('color', ['#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32', '#FF69B4', '#FF4500', '#1E90FF', '#8A2BE2', '#FFA07A', '#8B0000']),
+        }
+
+        with plt.rc_context(default_rc):
+            if axes is None:
+                fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+            else:
+                ax_mag, ax_phase = axes
+                fig = ax_mag.figure
+
+            prefix = f"{label}: " if label else ""
+
+            if which == 'all':
+                which = ['G', 'H', 'E']
+            else:
+                which = [w.upper() for w in which]
+                for w in which:
+                    if w not in ('G', 'H', 'E'):
+                        raise ValueError(f"Invalid transfer function key: '{w}'. Use 'G', 'H', or 'E'.")
+
+            # Plot open-loop transfer function
+            if 'G' in which:
+                G_val = self.Gf(f=frfr)
+                ax_mag.loglog(frfr, np.abs(G_val), label=prefix + "G(f)", *args, **kwargs)
+                ax_phase.semilogx(frfr, np.angle(G_val, deg=True), *args, **kwargs)
+
+            # Plot system function
+            if 'H' in which:
+                H_val = self.Hf(f=frfr)
+                ax_mag.loglog(frfr, np.abs(H_val), label=prefix + "H(f)", *args, **kwargs)
+                ax_phase.semilogx(frfr, np.angle(H_val, deg=True), *args, **kwargs)
+
+            # Plot error function
+            if 'E' in which:
+                E_val = self.Ef(f=frfr)
+                ax_mag.loglog(frfr, np.abs(E_val), label=prefix + "E(f)", *args, **kwargs)
+                ax_phase.semilogx(frfr, np.angle(E_val, deg=True), *args, **kwargs)
+
+            ax_phase.set_xlabel("Frequency (Hz)")
+            ax_mag.set_ylabel("Magnitude")
+            ax_phase.set_ylabel("Phase (deg)")
+
+            ax_mag.set_xlim(frfr[0], frfr[-1])
+            ax_phase.set_xlim(frfr[0], frfr[-1])
+            ax_mag.legend(loc='upper left', 
+                        bbox_to_anchor=(1, 1), 
+                        edgecolor='black', 
+                        fancybox=True, 
+                        shadow=True, 
+                        framealpha=1,
+                        fontsize=8)
+
+            ax_mag.minorticks_on()
+            ax_phase.minorticks_on()
+            ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
+            ax_phase.grid(True, which='minor', linestyle='--', linewidth=0.5)
+
+            fig.tight_layout()
+            fig.align_ylabels()
+
+            return fig, (ax_mag, ax_phase)
 
     def noise_propagation_t(self, tau, noise, unit=Dimension(dimensionless=True), _from='PD', _to=None, view=False):
         """

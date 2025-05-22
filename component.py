@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class Component:
-    def __init__(self, name, sps, nume=np.array([1]), deno=np.array([1]), tf=None, unit=dim.Dimension(dimensionless=True)):
+    def __init__(self, name, sps, nume=np.array([1.0]), deno=np.array([1.0]), tf=None, unit=dim.Dimension(dimensionless=True)):
         """
         Represents a component in a control loop with its transfer function.
 
@@ -25,12 +25,12 @@ class Component:
             Name of the component.
         sps : float
             Sample rate of the control loop (Hz).
-        nume : array_like, optional
-            Numerator coefficients of the transfer function.
-        deno : array_like, optional
-            Denominator coefficients of the transfer function.
-        tf : control.TransferFunction, optional
-            Optional transfer function object; overrides `nume` and `deno` if given.
+        tf : str | float | control.TransferFunction | tuple
+            Transfer function specification. Can be:
+            - A string using 's' (e.g. '1 / (s^2 + 10*s + 20)')
+            - A scalar (interpreted as gain)
+            - A control.TransferFunction object
+            - A (nume, deno) tuple/list
         unit : Dimension, optional
             Unit of the component.
 
@@ -49,15 +49,43 @@ class Component:
         self.sps = sps
         self.unit = unit
 
-        # : transfer element
+        from sympy import symbols, Poly, sympify
+        import numbers
+
+        s = symbols('s')
+
+        # Handle various tf formats
         if tf is None:
             self.nume = nume
             self.deno = deno
             self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
-        else:
+
+        elif isinstance(tf, str):
+            expr = sympify(tf.replace('^', '**'))
+            nume_expr, deno_expr = expr.as_numer_denom()
+            nume_poly = Poly(nume_expr, s)
+            deno_poly = Poly(deno_expr, s)
+            self.nume = np.array(nume_poly.all_coeffs(), dtype=float)
+            self.deno = np.array(deno_poly.all_coeffs(), dtype=float)
+            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+
+        elif isinstance(tf, numbers.Number):
+            self.nume = np.array([float(tf)])
+            self.deno = np.array([1.0])
+            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+
+        elif isinstance(tf, control.TransferFunction):
             self.nume, self.deno = aux.mytfdata(tf)
             self.TE = copy.deepcopy(tf)
             self.TE.name = name
+
+        elif isinstance(tf, (tuple, list)) and len(tf) == 2:
+            self.nume = np.array(tf[0], dtype=float)
+            self.deno = np.array(tf[1], dtype=float)
+            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+
+        else:
+            raise ValueError(f"Unsupported tf format: {type(tf)}")
 
         # : transfer function
         self.update()
@@ -178,7 +206,7 @@ class Component:
         #bode, ugf, margin = compute_bode(self.TF, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
         return bode, ugf, margin
 
-    def bode_plot(self, omega, returns=True, dB=False, deg=True, wrap=True):
+    def bode_plot(self, omega, returns=False, dB=False, deg=True, wrap=True):
         """
         Plot the Bode diagram of the component.
 

@@ -126,15 +126,15 @@ class NPROLaserLock():
             if name in self.temp.components_dict:
                 self.pzt.register_callback(self.temp.replace_component, comp.name, comp, loop_update=True)
 
-        self.pzt.register_callback(self.update_LaserLock)
+        self.pzt.register_callback(self.update_NPROLaserLock)
 
         for name, comp in self.temp.components_dict.items():
             if name in self.pzt.components_dict:
                 self.temp.register_callback(self.pzt.replace_component, comp.name, comp, loop_update=True)
 
-        self.temp.register_callback(self.update_LaserLock)
+        self.temp.register_callback(self.update_NPROLaserLock)
         
-        self.update_LaserLock()
+        self.update_NPROLaserLock()
 
     def __deepcopy__(self, memo):
         new_obj = NPROLaserLock.__new__(NPROLaserLock)
