@@ -34,6 +34,34 @@ OpAmp_dict = {
 }
 
 class PDComponent(Component):
+    """
+    Phase Detector (PD) component for phase-locked loop simulations.
+
+    This component models the behavior of a digital phase detector, which mixes
+    an input signal with a numerically controlled oscillator (NCO) in a PLL system.
+    The output of the phase detector is proportional to the phase difference 
+    between its input and reference signals.
+
+    The internal transfer function is a static gain element with a value derived 
+    from the amplitude (`Amp`), initialized as `Amp / 4.0`. This scaling factor 
+    reflects typical digital mixing gain behavior.
+
+    Parameters
+    ----------
+    name : str
+        Name of the component.
+    sps : float
+        Sample rate in Hz.
+    Amp : float
+        Peak amplitude of the input signal; determines phase detector gain.
+
+    Attributes
+    ----------
+    Amp : float
+        Input amplitude used to compute the transfer gain.
+    ival : float
+        Internal gain value, computed as Amp / 4.0.
+    """
     def __init__(self, name, sps, Amp):
         self._Amp = Amp
         self._ival = Amp/4.0
@@ -73,6 +101,25 @@ class PDComponent(Component):
 
 
 class MultiplierComponent(Component):
+    """
+    Static gain multiplier component.
+
+    Parameters
+    ----------
+    name : str
+        Name of the component.
+    sps : float
+        Sample rate in Hz.
+    gain : float
+        Gain value.
+    unit : Dimension
+        Dimensional unit of the signal after multiplication.
+
+    Attributes
+    ----------
+    gain : float
+        Gain applied to the input signal.
+    """
     def __init__(self, name, sps, gain, unit):
         self._gain = gain
         super().__init__(name, sps, np.array([self._gain]), np.array([1.0]), unit=unit)
@@ -99,6 +146,23 @@ class MultiplierComponent(Component):
 
 
 class LeftBitShiftComponent(Component):
+    """
+    Simulates a left bit-shift operation (*2^Cshift).
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    Cshift : int or float
+        Shift value; actual gain is 2^(-Cshift).
+
+    Attributes
+    ----------
+    Cshift : float
+        Exponent of the power-of-two shift.
+    """
     def __init__(self, name, sps, Cshift):
         self._Cshift = 2.0**float(-Cshift)
         super().__init__(name, sps, np.array([self._Cshift]), np.array([1.0]), unit=Dimension(dimensionless=True))
@@ -124,14 +188,33 @@ class LeftBitShiftComponent(Component):
         super().__init__(self.name, self.sps, np.array([self._Cshift]), np.array([1.0]), unit=Dimension(dimensionless=True))
         
 
-class LFComponent(Component):
+class LPFComponent(Component):
+    """
+    Low pass filter component (first-order IIR).
+
+    Models a low-pass loop filter with tunable gain.
+
+    Parameters
+    ----------
+    name : str
+        Name of the component.
+    sps : float
+        Sample rate in Hz.
+    Klf : float
+        Log2 representation of loop gain (gain = 2^-Klf).
+
+    Attributes
+    ----------
+    Klf : float
+        Filter gain as 2^-Klf.
+    """
     def __init__(self, name, sps, Klf):
         self._Klf = 2.0**float(-Klf)
         super().__init__(name, sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
         self.properties = {'Klf': (lambda: self.Klf, lambda value: setattr(self, 'Klf', value))}
 
     def __deepcopy__(self, memo):
-        new_obj = LFComponent.__new__(LFComponent)
+        new_obj = LPFComponent.__new__(LPFComponent)
         new_obj.__init__(self.name, self.sps, -np.log2(self._Klf))
         if getattr(self, '_loop', None) != None:
             new_obj._loop = self._loop
@@ -150,7 +233,24 @@ class LFComponent(Component):
         super().__init__(self.name, self.sps, np.array([self._Klf]), np.array([1.0, -(1.0-self._Klf)]), unit=Dimension(dimensionless=True))
 
 
-class TwoStageLFComponent(Component):
+class TwoStageLPFComponent(Component):
+    """
+    Cascaded low pass filter with two identical first-order stages.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    Klf : float
+        Log2 representation of gain.
+
+    Attributes
+    ----------
+    Klf : float
+        Effective loop filter gain (applied twice in series).
+    """
     def __init__(self, name, sps, Klf):
         self._Klf = 2**float(-Klf)
         LF = Component("LF", sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
@@ -162,7 +262,7 @@ class TwoStageLFComponent(Component):
         self.properties = {'Klf': (lambda: self.Klf, lambda value: setattr(self, 'Klf', value))}
 
     def __deepcopy__(self, memo):
-        new_obj = TwoStageLFComponent.__new__(TwoStageLFComponent)
+        new_obj = TwoStageLPFComponent.__new__(TwoStageLPFComponent)
         new_obj.__init__(self.name, self.sps, -np.log2(self._Klf))
         if getattr(self, '_loop', None) != None:
             new_obj._loop = self._loop
@@ -187,6 +287,30 @@ class TwoStageLFComponent(Component):
 
 
 class PIControllerComponent(Component):
+    """
+    Proportional-Integral controller component.
+
+    Combines proportional and integral actions into a PI controller with
+    bit-shift-based tunable gain.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    Kp : float
+        Proportional gain as log2(Kp).
+    Ki : float
+        Integral gain as log2(Ki).
+
+    Attributes
+    ----------
+    Kp : float
+        Proportional gain.
+    Ki : float
+        Integral gain.
+    """
     def __init__(self, name, sps, Kp, Ki):
         self._Kp = 2**float(Kp)  # convert a bit shift to gain
         self._Ki = 2**float(Ki)  # convert a bit shift to gain
@@ -230,6 +354,29 @@ class PIControllerComponent(Component):
 
 
 class DoubleIntegratorComponent(Component):
+    """
+    Second-order integrator.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    Ki : float
+        Gain of first integrator (log2 scale).
+    Kii : float
+        Gain of second integrator (log2 scale).
+    extrapolate : tuple(bool, float)
+        (Enable extrapolation, transition frequency)
+
+    Attributes
+    ----------
+    Ki : float
+        Gain of the first integrator.
+    Kii : float
+        Gain of the second integrator.
+    """
     def __init__(self, name, sps, Ki, Kii, extrapolate):
         self.extrapolate = extrapolate
         self._Ki = 2**float(Ki)
@@ -282,6 +429,18 @@ class DoubleIntegratorComponent(Component):
 
 
 class PAComponent(Component):
+    """
+    Phase accumulator.
+
+    Implements a pure integrator (I(z) = 1 / (1 - z⁻¹)).
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    """
     def __init__(self, name, sps):
         super().__init__(name, sps, np.array([1.0]), np.array([1.0, -1.0]), unit=Dimension(["s"], []))
 
@@ -294,6 +453,18 @@ class PAComponent(Component):
 
 
 class LUTComponent(Component):
+    """
+    Lookup table phase converter.
+
+    Converts digital phase to analog signal (rad ↔ cycle).
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    """
     def __init__(self, name, sps):
         super().__init__(name, sps, np.array([2.0*np.pi]), np.array([1.0]), unit=Dimension(["rad"], ["cycle"]))
 
@@ -306,6 +477,25 @@ class LUTComponent(Component):
 
 
 class DSPDelayComponent(Component):
+    """
+    Discrete pipeline delay component.
+
+    Implements delay through register depth `n_reg`.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    n_reg : int
+        Number of DSP registers (delay in samples).
+
+    Attributes
+    ----------
+    n_reg : int
+        Length of the pipeline delay.
+    """
     def __init__(self, name, sps, n_reg):
         self._n_reg = int(n_reg)
         DSP_denom = np.zeros(self._n_reg+1)
@@ -336,6 +526,31 @@ class DSPDelayComponent(Component):
 
 
 class ActuatorComponent(Component):
+    """
+    PZT actuator model with gain and cutoff frequency.
+
+    Converts s-domain coefficients into z-domain using aux.polynomial_conversion_s_to_z.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    Ka_pzt : float
+        Actuator gain.
+    Fa_pzt : float
+        Actuator cutoff frequency (Hz).
+    unit : Dimension
+        Dimensional unit of the actuator.
+
+    Attributes
+    ----------
+    Ka_pzt : float
+        Gain.
+    Fa_pzt : float
+        Cutoff frequency.
+    """
     def __init__(self, name, sps, Ka_pzt, Fa_pzt, unit):
         self._Fa_pzt = Fa_pzt
         self._Ka_pzt = Ka_pzt
@@ -377,6 +592,18 @@ class ActuatorComponent(Component):
 
 
 class ImplicitAccumulatorComponent(Component):
+    """
+    Continuous-time accumulator modeled in discrete-time domain.
+
+    Approximates a pure integrator with scaling factor (2pi).
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    """
     def __init__(self, name, sps):
         nume = aux.polynomial_conversion_s_to_z(np.array([2.0*np.pi]), sps)
         deno = aux.polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps)

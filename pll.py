@@ -36,9 +36,9 @@ class PLL(LOOP):
 		# : IIR LF
         if "LF" not in but:
             if twostages:
-                self.add_component(TwoStageLFComponent("LF", self.sps, Klf))
+                self.add_component(TwoStageLPFComponent("LF", self.sps, Klf))
             else:
-                self.add_component(LFComponent("LF", self.sps, Klf))
+                self.add_component(LPFComponent("LF", self.sps, Klf))
 
         # : Gain
         if "Gain" not in but:
