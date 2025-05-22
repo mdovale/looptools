@@ -240,7 +240,7 @@ class LOOP:
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
     
-    def bode_plot(self, frfr, figsize=(5,5), which='all', axes=None, label=None, *args, **kwargs):
+    def bode_plot(self, frfr, figsize=(5,5), which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
         Parameters
@@ -314,14 +314,16 @@ class LOOP:
 
             ax_mag.set_xlim(frfr[0], frfr[-1])
             ax_phase.set_xlim(frfr[0], frfr[-1])
-            ax_mag.legend(loc='upper left', 
-                        bbox_to_anchor=(1, 1), 
-                        edgecolor='black', 
-                        fancybox=True, 
-                        shadow=True, 
-                        framealpha=1,
-                        fontsize=8)
 
+            if label is not False:
+                ax_mag.legend(loc='upper left', 
+                            bbox_to_anchor=(1, 1), 
+                            edgecolor='black', 
+                            fancybox=True, 
+                            shadow=True, 
+                            framealpha=1,
+                            fontsize=8)
+            
             ax_mag.minorticks_on()
             ax_phase.minorticks_on()
             ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
