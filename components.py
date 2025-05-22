@@ -253,7 +253,7 @@ class TwoStageLPFComponent(Component):
     """
     def __init__(self, name, sps, Klf):
         self._Klf = 2**float(-Klf)
-        LF = Component("LF", sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
+        LF = Component("LPF", sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
         LF = LF*LF
         super().__init__(name, sps, LF.nume, LF.deno, unit=LF.unit)
         self.TE = LF.TE
@@ -278,7 +278,7 @@ class TwoStageLPFComponent(Component):
         self.update_component()
 
     def update_component(self):
-        LF = Component("LF", self.sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
+        LF = Component("LPF", self.sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
         LF = LF*LF
         super().__init__(self.name, self.sps, LF.nume, LF.deno, unit=LF.unit)
         self.TE = LF.TE

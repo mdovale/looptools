@@ -34,11 +34,11 @@ class PLL(LOOP):
             self.add_component(PDComponent("PD", self.sps, Amp))
 
 		# : IIR LF
-        if "LF" not in but:
+        if "LPF" not in but:
             if twostages:
-                self.add_component(TwoStageLPFComponent("LF", self.sps, Klf))
+                self.add_component(TwoStageLPFComponent("LPF", self.sps, Klf))
             else:
-                self.add_component(LPFComponent("LF", self.sps, Klf))
+                self.add_component(LPFComponent("LPF", self.sps, Klf))
 
         # : Gain
         if "Gain" not in but:
