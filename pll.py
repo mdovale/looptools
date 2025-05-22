@@ -6,17 +6,32 @@ logger = logging.getLogger(__name__)
 
 class PLL(LOOP):
     def __init__(self, sps, Amp, Cshift, Klf, Kp, Ki, twostages=True, n_reg=10, but=[None]):
-        """ class to simulate PLL
-        Args:
-            sps: system clock frequency (Hz)
-            Amp: normalized input signal amplitude, i.e. Vpk/Vpp,adc
-            Cshift: number of bit shifts for Gain C
-            Klf: gain of Low-Pass filter
-            Kp: P gain (WARNING: number of bit shifts)
-            Ki: I gain (WARNING: number of bit shifts)
-            twostages: use two stages for IIR LF or not
-            n_reg: number of registers in a loop
-            but: list of components' names to be omitted from the loop
+        """
+        Phase-Locked Loop (PLL) simulation loop subclass of LOOP.
+
+        This class models a digital PLL system using a chain of configurable components such as a phase detector, low-pass filter,
+        gain, PI controller, and output driver stages. This model is designed to match common FPGA/DSP-based implementations.
+
+        Parameters
+        ----------
+        sps : float
+            System sampling frequency in Hz.
+        Amp : float
+            Normalized input signal amplitude, defined as Vpk / Vpp_adc.
+        Cshift : int
+            Number of bit shifts applied in the gain stage (left shift).
+        Klf : float
+            Loop filter gain (typically normalized).
+        Kp : int
+            Proportional gain of PI controller, interpreted as bit shifts.
+        Ki : int
+            Integral gain of PI controller, interpreted as bit shifts.
+        twostages : bool, optional
+            If True, use a two-stage IIR loop filter (default is True).
+        n_reg : int, optional
+            Number of DSP delay registers to insert (default is 10).
+        but : list of str or [None], optional
+            List of component names to exclude from the loop. Default is [None].
         """
         super().__init__(sps)
         self.but = but
@@ -79,8 +94,12 @@ class PLL(LOOP):
         return new_obj
 
     def show_all_te(self):
-        """ Display all transfer elements
-        Args:
+        """
+        Display the transfer elements of all components in the loop.
+
+        This method prints the internal transfer element (TE) representation of
+        each component, as well as the overall open-loop forward path (Gc),
+        feedback path (Hc), and error function (Ec).
         """
         for comp in self.components_dict:
             print(f"=== transfer function of "+self.components_dict[comp].name+f" === {self.components_dict[comp].TE}")
@@ -89,25 +108,49 @@ class PLL(LOOP):
             print(f"=== transfer function of E === {self.Ec.TE}")
 
     def point_to_point_component(self, _from, _to=None, suppression=False, view=False):
-        """ compute a point-to-point loop component
-        Args:
-            _from: a staring PLL component [str]
-            _to: a stopping PLL component (this component is NOT included) [str]
-            suppression: suppression by 1/1+G or not 
-            view: print information or not
         """
+        Compute the transfer element between two components in the loop.
 
+        Parameters
+        ----------
+        _from : str
+            Name of the starting component.
+        _to : str, optional
+            Name of the stopping component. This component is *not* included.
+        suppression : bool, optional
+            If True, apply loop suppression factor 1 / (1 + G). Default is False.
+        view : bool, optional
+            If True, print details about the path and resulting transfer element.
+
+        Returns
+        -------
+        TransferElement
+            Transfer element between the specified components.
+        """
         component = super().point_to_point_component(_from, _to, suppression, view)
         return component
 
     def point_to_point_tf(self, f, _from, _to=None, suppression=False, view=False):
-        """ compute a point-to-point loop transfer function
-        Args:
-            f: fourier frequencies (Hz)
-            _from: a staring PLL component [str]
-            _to: a stopping PLL component (this component is NOT included) [str]
-            suppression: suppression by 1/1+G or not 
-            view: print information or not
+        """
+        Compute the frequency response (transfer function) between two loop components.
+
+        Parameters
+        ----------
+        f : ndarray
+            Array of Fourier frequencies in Hz.
+        _from : str
+            Name of the starting component.
+        _to : str, optional
+            Name of the stopping component. This component is *not* included.
+        suppression : bool, optional
+            If True, apply loop suppression factor 1 / (1 + G). Default is False.
+        view : bool, optional
+            If True, print details about the path and resulting transfer function.
+
+        Returns
+        -------
+        ndarray
+            Complex frequency response of the transfer function between components.
         """
 
         tf = super().point_to_point_tf(f, _from, _to, suppression, view)
