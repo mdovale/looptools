@@ -209,7 +209,6 @@ class LOOP:
             (Gc, Hc, Ec) components as `Component` objects.
         """
         self.Gc = np.prod(list(self.components_dict.values()))
-        self.Gc.name = "G"
 
         H_TE = control.feedback(self.Gc.TE, 1)
         self.Hc = Component("H", self.sps, tf=H_TE, unit=self.Gc.unit)
@@ -240,7 +239,7 @@ class LOOP:
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
     
-    def bode_plot(self, frfr, figsize=(5,5), which='all', axes=None, label="", *args, **kwargs):
+    def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
         Parameters
@@ -328,6 +327,9 @@ class LOOP:
             ax_phase.minorticks_on()
             ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
             ax_phase.grid(True, which='minor', linestyle='--', linewidth=0.5)
+
+            if title is not None:
+                ax_mag.set_title(title)
 
             fig.tight_layout()
             fig.align_ylabels()
