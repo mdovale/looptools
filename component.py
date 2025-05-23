@@ -59,6 +59,7 @@ class Component:
             self.nume = nume
             self.deno = deno
             self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE.name = name
 
         elif isinstance(tf, str):
             expr = sympify(tf.replace('^', '**'))
@@ -68,11 +69,13 @@ class Component:
             self.nume = np.array(nume_poly.all_coeffs(), dtype=float)
             self.deno = np.array(deno_poly.all_coeffs(), dtype=float)
             self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE.name = name
 
         elif isinstance(tf, numbers.Number):
             self.nume = np.array([float(tf)])
             self.deno = np.array([1.0])
             self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE.name = name
 
         elif isinstance(tf, control.TransferFunction):
             self.nume, self.deno = aux.mytfdata(tf)
@@ -83,6 +86,7 @@ class Component:
             self.nume = np.array(tf[0], dtype=float)
             self.deno = np.array(tf[1], dtype=float)
             self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE.name = name
 
         else:
             raise ValueError(f"Unsupported tf format: {type(tf)}")
@@ -125,8 +129,12 @@ class Component:
             New component representing the series connection.
         """
         new_unit = self.unit * other.unit
+        new_name = self.name + other.name
+
         new_TF = control.series(self.TE, other.TE)
-        new = Component(self.name+other.name, sps=self.sps, tf=new_TF, unit=new_unit)
+        new_TF.name = new_name
+
+        new = Component(new_name, sps=self.sps, tf=new_TF, unit=new_unit)
         new.TF = partial(aux.mul_transfer_function, tf1=self.TF, tf2=other.TF)
 
         return new
@@ -205,7 +213,7 @@ class Component:
         bode, ugf, margin = compute_bode(self.TE, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
         return bode, ugf, margin
     
-    def bode_plot(self, frfr, figsize=(4, 4), dB=False, deg=True, wrap=True, axes=None, label=None, *args, **kwargs):
+    def bode_plot(self, frfr, figsize=(4, 4), title=None, dB=False, deg=True, wrap=True, axes=None, label=None, *args, **kwargs):
         """
         Plot the Bode diagram (magnitude and phase) of this component.
 
@@ -276,12 +284,12 @@ class Component:
             ax_phase.semilogx(bode["f"], bode["phase"], label=lbl, *args, **kwargs)
             ax_phase.set_ylabel("Phase (deg)" if deg else "Phase (rad)")
 
-            # Highlight UGF
-            if ugf is not None:
-                ax_mag.axvline(ugf, ls="--", color="magenta", lw=1)
-                ax_phase.axvline(ugf, ls="--", color="magenta", lw=1)
-                ax_mag.text(ugf, ax_mag.get_ylim()[0], f"UGF: {ugf:.2e} Hz", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
-                ax_phase.text(ugf, ax_phase.get_ylim()[0], f"PM: {margin:.1f}°", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
+            # # Highlight UGF
+            # if ugf is not None:
+            #     ax_mag.axvline(ugf, ls="--", color="magenta", lw=1)
+            #     ax_phase.axvline(ugf, ls="--", color="magenta", lw=1)
+            #     ax_mag.text(ugf, ax_mag.get_ylim()[0], f"UGF: {ugf:.2e} Hz", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
+            #     ax_phase.text(ugf, ax_phase.get_ylim()[0], f"PM: {margin:.1f}°", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
 
             ax_phase.set_xlabel("Frequency (Hz)")
             ax_mag.set_xlim(bode["f"][0], bode["f"][-1])
@@ -299,6 +307,9 @@ class Component:
                         shadow=True,
                         framealpha=1,
                         fontsize=8)
+
+            if title is not None:
+                ax_mag.set_title(title)
 
             fig.tight_layout()
             fig.align_ylabels()
