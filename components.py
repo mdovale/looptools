@@ -615,3 +615,97 @@ class ImplicitAccumulatorComponent(Component):
         if getattr(self, '_loop', None) != None:
             new_obj._loop = self._loop
         return new_obj
+    
+    
+class LeadLagComponent(Component):
+    """
+    Lead-Lag controller component.
+
+    Implements a compensator of the form:
+
+        G(s) = K * (s + wz) / (s + wp)
+
+    where `wz = 2π*fz` is the zero frequency and `wp = 2π*fp` is the pole frequency.
+
+    This component is useful for phase compensation: when fz < fp, it behaves like
+    a phase lead; when fz > fp, it's a lag; and when fz ≈ fp, it is a gain shaper.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    K : float
+        Gain factor.
+    fz : float
+        Zero frequency in Hz.
+    fp : float
+        Pole frequency in Hz.
+    unit : Dimension, optional
+        Dimensional unit of the signal. Defaults to dimensionless.
+
+    Attributes
+    ----------
+    K : float
+        Gain factor.
+    fz : float
+        Zero frequency.
+    fp : float
+        Pole frequency.
+    """
+    def __init__(self, name, sps, K, fz, fp, unit=Dimension(dimensionless=True)):
+        self._K = float(K)
+        self._fz = float(fz)
+        self._fp = float(fp)
+        w_z = 2 * np.pi * self._fz
+        w_p = 2 * np.pi * self._fp
+        nume = np.array([self._K, self._K * w_z])
+        deno = np.array([1.0, w_p])
+        super().__init__(name, sps, nume, deno, unit=unit)
+        self.properties = {
+            'K': (lambda: self.K, lambda value: setattr(self, 'K', value)),
+            'fz': (lambda: self.fz, lambda value: setattr(self, 'fz', value)),
+            'fp': (lambda: self.fp, lambda value: setattr(self, 'fp', value)),
+        }
+
+    def __deepcopy__(self, memo):
+        new_obj = LeadLagComponent.__new__(LeadLagComponent)
+        new_obj.__init__(self.name, self.sps, self._K, self._fz, self._fp, self.unit)
+        if getattr(self, '_loop', None) is not None:
+            new_obj._loop = self._loop
+        return new_obj
+
+    @property
+    def K(self):
+        return self._K
+
+    @K.setter
+    def K(self, value):
+        self._K = float(value)
+        self.update_component()
+
+    @property
+    def fz(self):
+        return self._fz
+
+    @fz.setter
+    def fz(self, value):
+        self._fz = float(value)
+        self.update_component()
+
+    @property
+    def fp(self):
+        return self._fp
+
+    @fp.setter
+    def fp(self, value):
+        self._fp = float(value)
+        self.update_component()
+
+    def update_component(self):
+        w_z = 2 * np.pi * self._fz
+        w_p = 2 * np.pi * self._fp
+        nume = np.array([self._K, self._K * w_z])
+        deno = np.array([1.0, w_p])
+        super().__init__(self.name, self.sps, nume, deno, unit=self.unit)

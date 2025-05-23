@@ -300,8 +300,7 @@ class Component:
             ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
             ax_phase.grid(True, which='minor', linestyle='--', linewidth=0.5)
 
-            ax_mag.legend(loc='upper left',
-                        bbox_to_anchor=(1, 1),
+            ax_mag.legend(loc='best',
                         edgecolor='black',
                         fancybox=True,
                         shadow=True,

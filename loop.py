@@ -241,6 +241,72 @@ class LOOP:
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
     
+    def block_diagram(self, filename='loop_diagram', format='svg'):
+        """
+        Generate a Graphviz block diagram of the LOOP structure.
+
+        Each Component is shown as a node with its name and symbolic transfer function.
+        Connections are rendered in the order defined by the LOOP's topology.
+
+        Parameters
+        ----------
+        filename : str, optional
+            Base filename for output file. Default is 'loop_diagram'.
+        format : str, optional
+            Format for output file (e.g. 'svg', 'pdf'). Default is 'svg'.
+
+        Returns
+        -------
+        graphviz.Digraph
+            The graph object representing the block diagram.
+        """
+        import graphviz
+        dot = graphviz.Digraph(format=format)
+        dot.attr(rankdir='LR')
+
+        def tf_to_html_label(tf):
+            """Convert TransferFunction to Graphviz-safe HTML-like label."""
+            num, den = tf.num[0][0], tf.den[0][0]  # assuming SISO
+
+            def poly_to_str(coeffs):
+                terms = []
+                for i, c in enumerate(reversed(coeffs)):
+                    if abs(c) < 1e-12:
+                        continue
+                    power = f"f^{i}" if i > 1 else "f" if i == 1 else ""
+                    terms.append(f"{c:.2g}{power}")
+                return " + ".join(terms) if terms else "0"
+
+            num_str = poly_to_str(num)
+            den_str = poly_to_str(den)
+
+            return f"""
+                <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                <TR><TD>{num_str}</TD></TR>
+                <TR><TD>────</TD></TR>
+                <TR><TD>{den_str}</TD></TR>
+                </TABLE>
+            """
+
+        # Create a node for each Component
+        for name, comp in self.components_dict.items():
+            tf_html = tf_to_html_label(comp.TE)
+            label = f"""<
+                <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4">
+                <TR><TD><B>{name}</B></TD></TR>
+                <TR><TD>{tf_html}</TD></TR>
+                </TABLE>
+            >"""
+            dot.node(name, label=label)
+
+        # Naive edge inference
+        names = list(self.components_dict.keys())
+        for i in range(len(names) - 1):
+            dot.edge(names[i], names[i + 1])
+
+        dot.render(filename, view=False)
+        return dot
+    
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
@@ -338,7 +404,9 @@ class LOOP:
 
             return fig, (ax_mag, ax_phase)
         
-    def nyquist_plot(self, frfr, which='all', critical_point=False, arrow_scale = 1.0, figsize=(4, 4), title=None, ax=None, label="", *args, **kwargs):
+    def nyquist_plot(self, frfr, which='all', critical_point=False, arrow_scale=1.0, 
+                    figsize=(4, 4), title=None, ax=None, label="", 
+                    logx=False, logy=False, *args, **kwargs):
         """
         Plot the Nyquist diagram of the loop's Gf, Hf, and Ef transfer functions.
 
@@ -452,9 +520,11 @@ class LOOP:
 
             ax.set_xlabel("Re")
             ax.set_ylabel("Im")
-            ax.axhline(0, color='grey', linewidth=0.5)
-            ax.axvline(0, color='grey', linewidth=0.5)
             ax.set_aspect('equal', adjustable='datalim')
+            if logx:
+                ax.set_xscale('symlog')
+            if logy:
+                ax.set_yscale('symlog')
             ax.minorticks_on()
             ax.grid(True, which='minor', linestyle='--', linewidth=0.5)
 
