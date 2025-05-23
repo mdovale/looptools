@@ -203,60 +203,109 @@ class Component:
             - margin: phase margin at UGF
         """
         bode, ugf, margin = compute_bode(self.TE, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
-        #bode, ugf, margin = compute_bode(self.TF, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
         return bode, ugf, margin
-
-    def bode_plot(self, omega, returns=False, dB=False, deg=True, wrap=True):
+    
+    def bode_plot(self, frfr, figsize=(4, 4), dB=False, deg=True, wrap=True, axes=None, label=None, *args, **kwargs):
         """
-        Plot the Bode diagram of the component.
+        Plot the Bode diagram (magnitude and phase) of this component.
 
         Parameters
         ----------
-        omega : array_like
-            Angular frequency vector (rad/s).
-        returns : bool, optional
-            If True, returns Bode data and metrics.
+        frfr : array_like
+            Frequency array in Hz at which to evaluate the transfer function.
+        figsize : tuple, optional
+            Size of the figure if creating new one.
         dB : bool, optional
-            If True, displays magnitude in dB.
+            Display magnitude in dB. Default is False (linear).
         deg : bool, optional
-            If True, displays phase in degrees.
+            Display phase in degrees. Default is True.
         wrap : bool, optional
-            If True, wraps phase between -π and π.
+            Wrap phase between -π and π. Default is True.
+        axes : tuple of matplotlib.axes.Axes, optional
+            Existing axes to plot into. If None, creates new figure and axes.
+        label : str or None
+            Label for this component in the plot. If None, uses self.name.
 
         Returns
         -------
-        tuple, optional
-            (bode_dict, ugf, margin) if `returns` is True.
+        fig : matplotlib.figure.Figure
+            The figure object containing the plots.
+        axes : tuple of matplotlib.axes.Axes
+            The magnitude and phase axes used.
+        ugf : float
+            Unity-gain frequency (Hz).
+        margin : float
+            Phase margin (degrees).
         """
-        bode, ugf, margin = self.bode(omega, dB=dB, deg=deg, wrap=wrap)
-        plt.figure(figsize=(15,10))
-        plt.subplots_adjust(wspace=0.4, hspace=0.15)
-        ax1 = plt.subplot2grid((2,1), (0,0), colspan=1)
-        ax2 = plt.subplot2grid((2,1), (1,0), colspan=1)
-        # : magnitude
-        if dB:
-            ax1.semilogx(bode["f"], bode["mag"])
-            ax1.set_ylabel('magnitude (dB)')
-        else:
-            ax1.loglog(bode["f"], bode["mag"])
-            ax1.set_ylabel('magnitude (linear)')
-        ax1.axvline(ugf, ls = "-.", lw=2, color="m")
-        ax1.grid(which='major')
-        ax1.text(0.1, 0.1, f'UGF = {ugf:.2e} Hz', fontsize=15, transform=ax1.transAxes)
-        # : phase
-        ax2.semilogx(bode["f"], bode["phase"])
-        ax2.axvline(ugf, ls = "-.", lw=2, color="m")
-        ax2.text(0.1, 0.1, f'phase margin = {margin:.2e} deg', fontsize=15, transform=ax2.transAxes)
-        ax2.grid(which='both')
-        ax2.set_xlabel(f'frequency (Hz)')
-        ax2.set_ylabel('phase (deg)' if deg else 'phase (rad)')
-        plt.show()
-        plt.close()
+        default_rc = {
+            'figure.dpi': 150,
+            'font.size': 8,
+            'axes.labelsize': 8,
+            'axes.titlesize': 9,
+            'xtick.labelsize': 8,
+            'ytick.labelsize': 8,
+            'axes.grid': True,
+            'grid.color': '#FFD700',
+            'grid.linewidth': 0.7,
+            'grid.linestyle': '--',
+            'axes.prop_cycle': plt.cycler('color', ['#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32', '#FF69B4', '#FF4500']),
+        }
 
-        if returns:
-            return bode, ugf, margin
+        omega = 2 * np.pi * np.asarray(frfr)
 
-def compute_bode(tf, omega, sps=80e6, dB=False, deg=True, wrap=True):
+        bode, ugf, margin = compute_bode(self.TE, omega, dB=dB, deg=deg, wrap=wrap)
+
+        with plt.rc_context(default_rc):
+            if axes is None:
+                fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+            else:
+                ax_mag, ax_phase = axes
+                fig = ax_mag.figure
+
+            lbl = label if label is not None else self.name
+
+            # Plot magnitude
+            if dB:
+                ax_mag.semilogx(bode["f"], bode["mag"], label=lbl, *args, **kwargs)
+                ax_mag.set_ylabel("Magnitude (dB)")
+            else:
+                ax_mag.loglog(bode["f"], bode["mag"], label=lbl, *args, **kwargs)
+                ax_mag.set_ylabel("Magnitude")
+
+            # Plot phase
+            ax_phase.semilogx(bode["f"], bode["phase"], label=lbl, *args, **kwargs)
+            ax_phase.set_ylabel("Phase (deg)" if deg else "Phase (rad)")
+
+            # Highlight UGF
+            if ugf is not None:
+                ax_mag.axvline(ugf, ls="--", color="magenta", lw=1)
+                ax_phase.axvline(ugf, ls="--", color="magenta", lw=1)
+                ax_mag.text(ugf, ax_mag.get_ylim()[0], f"UGF: {ugf:.2e} Hz", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
+                ax_phase.text(ugf, ax_phase.get_ylim()[0], f"PM: {margin:.1f}°", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
+
+            ax_phase.set_xlabel("Frequency (Hz)")
+            ax_mag.set_xlim(bode["f"][0], bode["f"][-1])
+            ax_phase.set_xlim(bode["f"][0], bode["f"][-1])
+
+            ax_mag.minorticks_on()
+            ax_phase.minorticks_on()
+            ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
+            ax_phase.grid(True, which='minor', linestyle='--', linewidth=0.5)
+
+            ax_mag.legend(loc='upper left',
+                        bbox_to_anchor=(1, 1),
+                        edgecolor='black',
+                        fancybox=True,
+                        shadow=True,
+                        framealpha=1,
+                        fontsize=8)
+
+            fig.tight_layout()
+            fig.align_ylabels()
+
+            return fig, (ax_mag, ax_phase)
+
+def compute_bode(tf, omega, dB=False, deg=True, wrap=True):
     """
     Compute Bode diagram data and loop performance metrics.
 
@@ -284,7 +333,8 @@ def compute_bode(tf, omega, sps=80e6, dB=False, deg=True, wrap=True):
         - margin: phase margin at UGF
     """
     # : compute bode
-    mag, phase, _ = control.bode(tf, omega, dB=False, plot=False)
+    # mag, phase, _ = control.bode(tf, omega, dB=False, plot=False)
+    mag, phase, _ = control.frequency_response(tf, omega)
     fourier_freq = omega/(2*np.pi) # Hz of control.bode does not work for some reason
 
     # : some treatments with options
