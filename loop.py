@@ -1,6 +1,8 @@
 import numpy as np
 import control
 import copy
+import itertools
+from scipy.interpolate import interp1d
 from functools import partial
 from looptools.component import Component
 from looptools.dimension import Dimension
@@ -335,7 +337,141 @@ class LOOP:
             fig.align_ylabels()
 
             return fig, (ax_mag, ax_phase)
+        
+    def nyquist_plot(self, frfr, which='all', critical_point=False, arrow_scale = 1.0, figsize=(4, 4), title=None, ax=None, label="", *args, **kwargs):
+        """
+        Plot the Nyquist diagram of the loop's Gf, Hf, and Ef transfer functions.
 
+        This function plots the real versus imaginary components of the loop's transfer functions
+        over the specified frequency range. An arrow is drawn at the visual midpoint of each trace 
+        to indicate the direction of increasing frequency. Optionally, the critical point (-1, 0) 
+        may be marked to assist in Nyquist stability analysis.
+
+        Parameters
+        ----------
+        frfr : array_like
+            Frequency array in Hz at which to evaluate the transfer functions.
+        which : {'all', 'G', 'H', 'E'}, optional
+            Which transfer functions to plot. Use 'G' for open-loop, 'H' for closed-loop, 
+            and 'E' for error function. If 'all', plots all three.
+        critical_point : bool, optional
+            If True, mark the critical point (-1, 0) with a black 'x'. Useful for stability margin visualization.
+        arrow_scale : float, optional
+            Scaling factor for the arrowhead size. Controls both head length and width.
+        figsize : tuple of float, optional
+            Size of the matplotlib figure in inches. Default is (4, 4).
+        title : str, optional
+            Title for the plot.
+        ax : matplotlib.axes.Axes, optional
+            Existing matplotlib axis to plot into. If None, creates a new figure and axis.
+        label : str, optional
+            Prefix label for legend entries, e.g. "Loop 1". Defaults to empty string.
+        *args, **kwargs
+            Additional arguments passed to `matplotlib.pyplot.plot` for styling.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes.Axes
+            The axis object used for plotting.
+
+        Raises
+        ------
+        ValueError
+            If `which` contains invalid keys not among {'G', 'H', 'E'}.
+        """
+        default_rc = {
+            'figure.dpi': 150,
+            'font.size': 8,
+            'axes.labelsize': 8,
+            'axes.titlesize': 9,
+            'xtick.labelsize': 8,
+            'ytick.labelsize': 8,
+            'axes.grid': True,
+            'grid.color': '#FFD700',
+            'grid.linewidth': 0.7,
+            'grid.linestyle': '--',
+            'axes.prop_cycle': plt.cycler('color', ['#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32', '#FF69B4', '#FF4500', '#1E90FF', '#8A2BE2', '#FFA07A', '#8B0000']),
+        }
+
+        with plt.rc_context(default_rc):
+            if ax is None:
+                fig, ax = plt.subplots(figsize=figsize)
+            else:
+                fig = ax.figure
+
+            prefix = f"{label}: " if label else ""
+
+            if which == 'all':
+                which = ['G', 'H', 'E']
+            else:
+                which = [w.upper() for w in which]
+                for w in which:
+                    if w not in ('G', 'H', 'E'):
+                        raise ValueError(f"Invalid transfer function key: '{w}'. Use 'G', 'H', or 'E'.")
+
+            tf_map = {'G': self.Gf, 'H': self.Hf, 'E': self.Ef}
+            color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+
+            for key in which:
+                tf_func = tf_map[key]
+                vals = tf_func(f=frfr)
+                color = next(color_cycle)
+
+                # Plot full trace
+                ax.plot(vals.real, vals.imag, label=prefix + f"{key}(f)", color=color, *args, **kwargs)
+
+                # Calculate arc length along curve
+                dx = np.diff(vals.real)
+                dy = np.diff(vals.imag)
+                ds = np.hypot(dx, dy)
+                arc_len = np.concatenate([[0], np.cumsum(ds)])
+                total_len = arc_len[-1]
+
+                if total_len == 0:
+                    continue  # skip flat traces
+
+                # Find the index where arc length reaches half
+                midpoint_target = total_len / 2
+                i = np.searchsorted(arc_len, midpoint_target)
+                if i >= len(vals) - 1:
+                    i = len(vals) - 2  # guard
+
+                # Arrow from midpoint to next point
+                x0, y0 = vals.real[i], vals.imag[i]
+                dx = vals.real[i + 1] - x0
+                dy = vals.imag[i + 1] - y0
+
+                ax.annotate('', xy=(x0 + dx, y0 + dy), xytext=(x0, y0),
+                            arrowprops=dict(arrowstyle=f'->,head_length={arrow_scale},head_width={arrow_scale/2}', color=color, lw=1.0))
+
+            # Mark critical point (-1, 0)
+            if critical_point:
+                ax.plot([-1], [0], 'x', color='black', markersize=6)
+
+            ax.set_xlabel("Re")
+            ax.set_ylabel("Im")
+            ax.axhline(0, color='grey', linewidth=0.5)
+            ax.axvline(0, color='grey', linewidth=0.5)
+            ax.set_aspect('equal', adjustable='datalim')
+            ax.minorticks_on()
+            ax.grid(True, which='minor', linestyle='--', linewidth=0.5)
+
+            if label is not False:
+                ax.legend(loc='best', 
+                        edgecolor='black', 
+                        fancybox=True, 
+                        shadow=True, 
+                        framealpha=1,
+                        fontsize=8)
+
+            if title is not None:
+                ax.set_title(title)
+
+            fig.tight_layout()
+            return fig, ax
+        
     def noise_propagation_t(self, tau, noise, unit=Dimension(dimensionless=True), _from='PD', _to=None, view=False):
         """
         Propagate a time-domain noise signal through a defined segment of the loop.
