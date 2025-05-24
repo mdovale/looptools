@@ -42,17 +42,21 @@ from looptools.loop import LOOP
 
 sps = 80e6 # Loop update frequency (Hz)
 frfr = np.logspace(np.log10(1e2), np.log10(40e6), int(1e5)) # Fourier frequency array (Hz)
+frfr = frfr[0:-1]
 
 # Define components
-plant = Component("Plant", sps, tf="1/(s^2 + 10*s + 20)")
-sensor = Component("Sensor", sps, tf=1.0)
+plant = Component("Plant", sps, tf="1/(s^2 + 10*s - 20)")
+sensor = Component("Sensor", sps, tf="s/(s^2 + 2*s - 3.5)")
 controller = PIControllerComponent("Controller", sps, Kp=3, Ki=-3)
 
 # Build loop
-loop = LOOP(sps, [plant, sensor, controller])
+loop = LOOP(sps, [plant, sensor, controller], name='My Loop')
 
 # Analyze
 fig, ax = loop.bode_plot(frfr)
+plt.show()
+
+fig, ax = loop.nyquist_plot(frfr, which='G', logy=True, critical_point=True)
 plt.show()
 ```
 

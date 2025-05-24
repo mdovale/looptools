@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 
 
 class PLL(LOOP):
-    def __init__(self, sps, Amp, Cshift, Klf, Kp, Ki, twostages=True, n_reg=10, but=[None]):
+    def __init__(self, sps, Amp, Cshift, Klf, Kp, Ki, twostages=True, n_reg=10, but=[None], name=None):
         """
         Phase-Locked Loop (PLL) simulation loop subclass of LOOP.
 
@@ -34,6 +34,7 @@ class PLL(LOOP):
             List of component names to exclude from the loop. Default is [None].
         """
         super().__init__(sps)
+        self.name = name or 'PLL'
         self.but = but
         self.twostages = twostages
         self.Amp = Amp

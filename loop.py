@@ -2,6 +2,7 @@ import numpy as np
 import control
 import copy
 import itertools
+import warnings
 from scipy.interpolate import interp1d
 from functools import partial
 from looptools.component import Component
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class LOOP:
-    def __init__(self, sps, component_list=None):
+    def __init__(self, sps, component_list=None, name='Loop'):
         """
         Base class for defining a control loop system.
 
@@ -42,6 +43,7 @@ class LOOP:
             Transfer function components (control and feedback path elements).
         """
         self.sps = sps
+        self.name = name
         self.components_dict = {}
         self.property_list = []
         self.callbacks = []
@@ -241,7 +243,7 @@ class LOOP:
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
     
-    def block_diagram(self, filename='loop_diagram', format='svg'):
+    def block_diagram(self, filename='loop_diagram', format='svg', transfer_functions=True):
         """
         Generate a Graphviz block diagram of the LOOP structure.
 
@@ -254,6 +256,8 @@ class LOOP:
             Base filename for output file. Default is 'loop_diagram'.
         format : str, optional
             Format for output file (e.g. 'svg', 'pdf'). Default is 'svg'.
+        transfer_functions : bool, optional
+            If True, display the transfer function within the node block.
 
         Returns
         -------
@@ -262,7 +266,10 @@ class LOOP:
         """
         import graphviz
         dot = graphviz.Digraph(format=format)
-        dot.attr(rankdir='LR')
+        if len(self.components_dict) > 4:
+            dot.attr(rankdir='TB', ranksep='0.5', nodesep='0.5')
+        else:
+            dot.attr(rankdir='LR')
 
         def tf_to_html_label(tf):
             """Convert TransferFunction to Graphviz-safe HTML-like label."""
@@ -290,23 +297,33 @@ class LOOP:
 
         # Create a node for each Component
         for name, comp in self.components_dict.items():
-            tf_html = tf_to_html_label(comp.TE)
-            label = f"""<
-                <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4">
-                <TR><TD><B>{name}</B></TD></TR>
-                <TR><TD>{tf_html}</TD></TR>
-                </TABLE>
-            >"""
-            dot.node(name, label=label)
+            if transfer_functions:
+                tf_html = tf_to_html_label(comp.TE)
+                label = f"""<
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4">
+                    <TR><TD><B>{name}</B></TD></TR>
+                    <TR><TD>{tf_html}</TD></TR>
+                    </TABLE>
+                >"""
+            else:
+                label = name
+            dot.node(name, label=label, shape="box")
 
-        # Naive edge inference
+        # Add edges
         names = list(self.components_dict.keys())
-        for i in range(len(names) - 1):
-            dot.edge(names[i], names[i + 1])
+        if len(names) > 1:
+            for i in range(len(names) - 1):
+                dot.edge(names[i], names[i + 1])
+            # Close the loop: last → first
+            dot.edge(names[-1], names[0], style='dashed', label=self.name)
+        elif len(names) == 1:
+            # Single-component loopback from East to West
+            name = names[0]
+            dot.edge(f'{name}:e', f'{name}:w', style='dashed', label=self.name)
 
         dot.render(filename, view=False)
         return dot
-    
+
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
@@ -357,23 +374,25 @@ class LOOP:
                     if w not in ('G', 'H', 'E'):
                         raise ValueError(f"Invalid transfer function key: '{w}'. Use 'G', 'H', or 'E'.")
 
-            # Plot open-loop transfer function
-            if 'G' in which:
-                G_val = self.Gf(f=frfr)
-                ax_mag.loglog(frfr, np.abs(G_val), label=prefix + "G(f)", *args, **kwargs)
-                ax_phase.semilogx(frfr, np.angle(G_val, deg=True), *args, **kwargs)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                # Plot open-loop transfer function
+                if 'G' in which:
+                    G_val = self.Gf(f=frfr)
+                    ax_mag.loglog(frfr, np.abs(G_val), label=prefix + "G(f)", *args, **kwargs)
+                    ax_phase.semilogx(frfr, np.angle(G_val, deg=True), *args, **kwargs)
 
-            # Plot system function
-            if 'H' in which:
-                H_val = self.Hf(f=frfr)
-                ax_mag.loglog(frfr, np.abs(H_val), label=prefix + "H(f)", *args, **kwargs)
-                ax_phase.semilogx(frfr, np.angle(H_val, deg=True), *args, **kwargs)
+                # Plot system function
+                if 'H' in which:
+                    H_val = self.Hf(f=frfr)
+                    ax_mag.loglog(frfr, np.abs(H_val), label=prefix + "H(f)", *args, **kwargs)
+                    ax_phase.semilogx(frfr, np.angle(H_val, deg=True), *args, **kwargs)
 
-            # Plot error function
-            if 'E' in which:
-                E_val = self.Ef(f=frfr)
-                ax_mag.loglog(frfr, np.abs(E_val), label=prefix + "E(f)", *args, **kwargs)
-                ax_phase.semilogx(frfr, np.angle(E_val, deg=True), *args, **kwargs)
+                # Plot error function
+                if 'E' in which:
+                    E_val = self.Ef(f=frfr)
+                    ax_mag.loglog(frfr, np.abs(E_val), label=prefix + "E(f)", *args, **kwargs)
+                    ax_phase.semilogx(frfr, np.angle(E_val, deg=True), *args, **kwargs)
 
             ax_phase.set_xlabel("Frequency (Hz)")
             ax_mag.set_ylabel("Magnitude")
@@ -404,50 +423,44 @@ class LOOP:
 
             return fig, (ax_mag, ax_phase)
         
-    def nyquist_plot(self, frfr, which='all', critical_point=False, arrow_scale=1.0, 
-                    figsize=(4, 4), title=None, ax=None, label="", 
+    def nyquist_plot(self, frfr, which='all', critical_point=False,
+                    arrow_scale=1.0, arrow_frequency=None,
+                    figsize=(4, 4), title=None, ax=None, label="",
                     logx=False, logy=False, *args, **kwargs):
         """
         Plot the Nyquist diagram of the loop's Gf, Hf, and Ef transfer functions.
-
-        This function plots the real versus imaginary components of the loop's transfer functions
-        over the specified frequency range. An arrow is drawn at the visual midpoint of each trace 
-        to indicate the direction of increasing frequency. Optionally, the critical point (-1, 0) 
-        may be marked to assist in Nyquist stability analysis.
 
         Parameters
         ----------
         frfr : array_like
             Frequency array in Hz at which to evaluate the transfer functions.
         which : {'all', 'G', 'H', 'E'}, optional
-            Which transfer functions to plot. Use 'G' for open-loop, 'H' for closed-loop, 
-            and 'E' for error function. If 'all', plots all three.
+            Which transfer functions to plot.
         critical_point : bool, optional
-            If True, mark the critical point (-1, 0) with a black 'x'. Useful for stability margin visualization.
+            Mark the critical point (-1, 0).
         arrow_scale : float, optional
-            Scaling factor for the arrowhead size. Controls both head length and width.
+            Size scale of the directional arrowhead.
+        arrow_frequency : float, optional
+            Frequency (Hz) at which to draw the direction arrow.
         figsize : tuple of float, optional
-            Size of the matplotlib figure in inches. Default is (4, 4).
+            Size of the matplotlib figure.
         title : str, optional
             Title for the plot.
         ax : matplotlib.axes.Axes, optional
-            Existing matplotlib axis to plot into. If None, creates a new figure and axis.
+            Axis to plot on.
         label : str, optional
-            Prefix label for legend entries, e.g. "Loop 1". Defaults to empty string.
-        *args, **kwargs
-            Additional arguments passed to `matplotlib.pyplot.plot` for styling.
+            Prefix label for the legend.
+        logx : bool, optional
+            Use symmetric log scaling on x-axis.
+        logy : bool, optional
+            Use symmetric log scaling on y-axis.
+        *args, **kwargs :
+            Passed to `plot`.
 
         Returns
         -------
         fig : matplotlib.figure.Figure
-            The figure object containing the plot.
         ax : matplotlib.axes.Axes
-            The axis object used for plotting.
-
-        Raises
-        ------
-        ValueError
-            If `which` contains invalid keys not among {'G', 'H', 'E'}.
         """
         default_rc = {
             'figure.dpi': 150,
@@ -460,7 +473,10 @@ class LOOP:
             'grid.color': '#FFD700',
             'grid.linewidth': 0.7,
             'grid.linestyle': '--',
-            'axes.prop_cycle': plt.cycler('color', ['#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32', '#FF69B4', '#FF4500', '#1E90FF', '#8A2BE2', '#FFA07A', '#8B0000']),
+            'axes.prop_cycle': plt.cycler('color', [
+                '#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32',
+                '#FF69B4', '#FF4500', '#1E90FF', '#8A2BE2', '#FFA07A', '#8B0000'
+            ]),
         }
 
         with plt.rc_context(default_rc):
@@ -477,7 +493,7 @@ class LOOP:
                 which = [w.upper() for w in which]
                 for w in which:
                     if w not in ('G', 'H', 'E'):
-                        raise ValueError(f"Invalid transfer function key: '{w}'. Use 'G', 'H', or 'E'.")
+                        raise ValueError(f"Invalid transfer function key: '{w}'.")
 
             tf_map = {'G': self.Gf, 'H': self.Hf, 'E': self.Ef}
             color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
@@ -487,10 +503,8 @@ class LOOP:
                 vals = tf_func(f=frfr)
                 color = next(color_cycle)
 
-                # Plot full trace
                 ax.plot(vals.real, vals.imag, label=prefix + f"{key}(f)", color=color, *args, **kwargs)
 
-                # Calculate arc length along curve
                 dx = np.diff(vals.real)
                 dy = np.diff(vals.imag)
                 ds = np.hypot(dx, dy)
@@ -498,48 +512,56 @@ class LOOP:
                 total_len = arc_len[-1]
 
                 if total_len == 0:
-                    continue  # skip flat traces
+                    continue  # flat trace
 
-                # Find the index where arc length reaches half
-                midpoint_target = total_len / 2
-                i = np.searchsorted(arc_len, midpoint_target)
-                if i >= len(vals) - 1:
-                    i = len(vals) - 2  # guard
+                if arrow_frequency is not None:
+                    idx = np.argmin(np.abs(frfr - arrow_frequency))
+                    if idx >= len(vals) - 1:
+                        idx = len(vals) - 2
+                else:
+                    midpoint_target = total_len / 2
+                    idx = np.searchsorted(arc_len, midpoint_target)
+                    if idx >= len(vals) - 1:
+                        idx = len(vals) - 2
 
-                # Arrow from midpoint to next point
-                x0, y0 = vals.real[i], vals.imag[i]
-                dx = vals.real[i + 1] - x0
-                dy = vals.imag[i + 1] - y0
+                x0, y0 = vals.real[idx], vals.imag[idx]
+                dx = vals.real[idx + 1] - x0
+                dy = vals.imag[idx + 1] - y0
 
                 ax.annotate('', xy=(x0 + dx, y0 + dy), xytext=(x0, y0),
-                            arrowprops=dict(arrowstyle=f'->,head_length={arrow_scale},head_width={arrow_scale/2}', color=color, lw=1.0))
-
-            # Mark critical point (-1, 0)
-            if critical_point:
-                ax.plot([-1], [0], 'x', color='black', markersize=6)
+                            arrowprops=dict(
+                                arrowstyle=f'->,head_length={arrow_scale},head_width={arrow_scale/2}',
+                                color=color, lw=1.0))
 
             ax.set_xlabel("Re")
             ax.set_ylabel("Im")
-            ax.set_aspect('equal', adjustable='datalim')
             if logx:
-                ax.set_xscale('symlog')
+                ax.set_xscale('symlog', linthresh=1e-2)
             if logy:
-                ax.set_yscale('symlog')
+                ax.set_yscale('symlog', linthresh=1e-2)
+            if not (logx or logy):
+                ax.set_aspect('equal', adjustable='datalim')
+
+            ax.axhline(0, color='#FFD700', linewidth=1.0)
+            ax.axvline(0, color='#FFD700', linewidth=1.0)
+            if critical_point:
+                ax.plot([-1], [0], 'x', color='k', markersize=6, linewidth=3)
+
             ax.minorticks_on()
             ax.grid(True, which='minor', linestyle='--', linewidth=0.5)
 
             if label is not False:
-                ax.legend(loc='best', 
-                        edgecolor='black', 
-                        fancybox=True, 
-                        shadow=True, 
-                        framealpha=1,
-                        fontsize=8)
+                ax.legend(loc='best', edgecolor='black', fancybox=True,
+                        shadow=True, framealpha=1, fontsize=8)
 
             if title is not None:
                 ax.set_title(title)
 
-            fig.tight_layout()
+            try:
+                fig.tight_layout()
+            except Exception as e:
+                warnings.warn(f"tight_layout() failed: {e}")
+
             return fig, ax
         
     def noise_propagation_t(self, tau, noise, unit=Dimension(dimensionless=True), _from='PD', _to=None, view=False):
