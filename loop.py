@@ -613,7 +613,7 @@ class LOOP:
         unit_prop = component.unit * unit
 
         # : compute RMS of the new ASD
-        rms = aux.integral_rms(f, asd_prop, [0, np.inf])
+        rms = dsp.integral_rms(f, asd_prop, [0, np.inf])
 
         return asd_prop, unit_prop, bode, rms
 
@@ -794,6 +794,6 @@ class LOOP:
             raise ValueError(f"invalid mode {mode}")
 
         if extrapolate:
-            output = aux.tf_power_extrapolate(f, output, f_trans=f_trans, power=power, size=size, solver=solver)
+            output = tf_power_extrapolate(f, output, f_trans=f_trans, power=power, size=size, solver=solver)
 
         return output

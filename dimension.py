@@ -1,83 +1,126 @@
 import copy
 
 class Dimension:
-	def __init__(self, numes=[], denos=[], dimensionless=False):
-		""" class for a dimension
-		Args:
-			numes: numerators
-			denos: denominators
-		"""
+    """
+    Represents a symbolic physical dimension using numerator and denominator units.
 
-		if dimensionless:
-			self.numes = []
-			self.denos = []
-		else:
-			self.numes = numes
-			self.denos = denos
-		self.reduction(self.numes, self.denos)
+    This class allows basic algebraic manipulation of unit-like structures,
+    such as multiplying and reducing dimensional expressions symbolically.
+    It is not tied to a specific unit system, but works with symbolic strings.
+    """
 
-	def __mul__(self, other):
-		""" define * operator
-		Args:
-			numes: numerators
-			denos: denominators
-		"""
+    def __init__(self, numes=None, denos=None, dimensionless=False):
+        """
+        Initialize a Dimension object.
 
-		self_numes = copy.copy(self.numes)
-		self_denos = copy.copy(self.denos)
-		other_numes = copy.copy(other.numes)
-		other_denos = copy.copy(other.denos)
-		self.reduction(self_numes, other_denos)
-		self.reduction(self_denos, other_numes)
-		self_numes.extend(other_numes)
-		self_denos.extend(other_denos)
-		return Dimension(self_numes, self_denos)
+        Parameters
+        ----------
+        numes : list of str, optional
+            List of numerator units (e.g., ['m', 's']). Default is empty.
+        denos : list of str, optional
+            List of denominator units (e.g., ['s', 'kg']). Default is empty.
+        dimensionless : bool, optional
+            If True, initializes as a dimensionless unit (i.e., 1). Default is False.
+        """
+        if numes is None:
+            numes = []
+        if denos is None:
+            denos = []
 
-	def reduction(self, numes, denos):
-		"""　dimension reduction
-		Args:
-			numes: numerators
-			denos: denominators
-		"""
+        if dimensionless:
+            self.numes = []
+            self.denos = []
+        else:
+            self.numes = numes
+            self.denos = denos
 
-		commons = list(set(numes) & set(denos))
-		for common in commons:
-			n_common_nummes = numes.count(common)
-			n_common_denos = denos.count(common)
-			n_common = min(n_common_nummes, n_common_denos)
-			for i in range(n_common):
-				numes.remove(common)
-				denos.remove(common)
+        self.reduction(self.numes, self.denos)
 
-	def unit_string(self):
-		"""　generate unit string
-		Args:
-		"""
+    def __mul__(self, other):
+        """
+        Multiply two Dimension objects.
 
-		# : numerator
-		if not self.numes:
-			numerator = ""
-		else:
-			numerator = self.numes[0]
-			for i in range(1,len(self.numes)):
-				numerator += "*" + self.numes[i]
-		# : denominator
-		if not self.denos:
-			denominator = ""
-		else:
-			denominator = self.denos[0]
-			for i in range(1,len(self.denos)):
-				denominator += "*" + self.denos[i]
+        Parameters
+        ----------
+        other : Dimension
+            Another Dimension instance to multiply with this one.
 
-		return numerator+"/"+denominator
+        Returns
+        -------
+        Dimension
+            A new Dimension object representing the product of the two.
 
-	def show(self):
-		"""　disply an unit
-		Args:
-		"""
+        Notes
+        -----
+        The multiplication follows symbolic dimensional algebra and
+        automatically reduces common units between numerators and denominators.
+        """
+        self_numes = copy.copy(self.numes)
+        self_denos = copy.copy(self.denos)
+        other_numes = copy.copy(other.numes)
+        other_denos = copy.copy(other.denos)
 
-		unit = self.unit_string()
-		# : print
-		print("["+unit+"]")
-		#print(r"$\frac{}{}$".format(numerator,denominator))
-		
+        self.reduction(self_numes, other_denos)
+        self.reduction(self_denos, other_numes)
+
+        self_numes.extend(other_numes)
+        self_denos.extend(other_denos)
+
+        return Dimension(self_numes, self_denos)
+
+    def reduction(self, numes, denos):
+        """
+        Simplify numerator and denominator unit lists by cancelling common terms.
+
+        Parameters
+        ----------
+        numes : list of str
+            Numerator units (modified in-place).
+        denos : list of str
+            Denominator units (modified in-place).
+
+        Notes
+        -----
+        This method reduces the symbolic expression by cancelling equal terms from
+        both numerator and denominator.
+        """
+        commons = list(set(numes) & set(denos))
+        for common in commons:
+            n_common_numes = numes.count(common)
+            n_common_denos = denos.count(common)
+            n_common = min(n_common_numes, n_common_denos)
+            for _ in range(n_common):
+                numes.remove(common)
+                denos.remove(common)
+
+    def unit_string(self):
+        """
+        Generate a string representation of the dimension.
+
+        Returns
+        -------
+        str
+            A symbolic unit string in the form 'unit1*unit2/...', or empty string if dimensionless.
+        """
+        numerator = "*".join(self.numes) if self.numes else ""
+        denominator = "*".join(self.denos) if self.denos else ""
+        if numerator and denominator:
+            return numerator + "/" + denominator
+        elif numerator:
+            return numerator
+        elif denominator:
+            return "1/" + denominator
+        else:
+            return ""
+
+    def show(self):
+        """
+        Print the dimension as a symbolic unit string.
+
+        Examples
+        --------
+        >>> d = Dimension(['m'], ['s'])
+        >>> d.show()
+        [m/s]
+        """
+        print(f"[{self.unit_string()}]")
