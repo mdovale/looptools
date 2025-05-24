@@ -136,14 +136,30 @@ def _(tf, f, deg=True):
 	return ugf, margin
 
 def tf_power_fitting(f, tf, fnew, power):
-    """ fit a transfer function based on the power law
-    Args:
-        f: fourier frequencies for fit
-        tf: complex transfer function  for fit
-        fnew: output fourier frequencies
-        power: power in power law
     """
+    Fit and extrapolate a transfer function magnitude using a power-law model.
 
+    Parameters
+    ----------
+    f : array_like
+        Frequencies (Hz) at which the transfer function is known.
+    tf : array_like
+        Complex-valued transfer function at `f`.
+    fnew : array_like
+        Frequencies (Hz) at which to evaluate the extrapolated transfer function.
+    power : float
+        Power-law exponent (e.g., -2 implies 1/f² behavior).
+
+    Returns
+    -------
+    tfnew : ndarray
+        Complex-valued extrapolated transfer function evaluated at `fnew`.
+
+    Notes
+    -----
+    The fitting is done on the magnitude |TF(f)|. The resulting extrapolation assumes
+    a phase consistent with the complex model `TF ∝ (j2πf)^power`.
+    """
     def power_law(freq, a, b, mag=False):
         omega = 2*np.pi*freq
         s = 1j*omega
@@ -157,14 +173,30 @@ def tf_power_fitting(f, tf, fnew, power):
     return tfnew
 
 def tf_power_solver(f, tf, fnew, power):
-    """ analytically solve a transfer function with only one sample based on the power law
-    Args:
-        f: fourier frequency (float)
-        tf: complex transfer function (complex)
-        fnew: output fourier frequencies
-        power: power in power law
     """
+    Extrapolate a transfer function using a power-law model from a single reference point.
 
+    Parameters
+    ----------
+    f : float
+        Single frequency (Hz) at which the transfer function is known.
+    tf : complex
+        Transfer function value at frequency `f`.
+    fnew : array_like
+        Frequencies (Hz) at which to evaluate the extrapolated transfer function.
+    power : float
+        Power-law exponent (e.g., -2 implies 1/f² behavior).
+
+    Returns
+    -------
+    tfnew : ndarray
+        Complex-valued extrapolated transfer function evaluated at `fnew`.
+
+    Raises
+    ------
+    ValueError
+        If `f` is not a float.
+    """
     if not isinstance(f, float):
         raise ValueError(f'invalid type of f {type(f)}')
 
@@ -176,16 +208,29 @@ def tf_power_solver(f, tf, fnew, power):
     return tfnew
 
 def tf_power_extrapolate(f, tf, f_trans, power, size=2, solver=True):
-    """ extrapolate tf with a power law below a given transition frequency
-    Args:
-        f: fourier frequencies
-        tf: complex transfer function (Hz)
-        f_trans: transition frequency
-        power: power in power law
-        size: point size to be used for fit (not needed for solver)
-        solver: use solver or not (not = fit)
     """
+    Extrapolate a transfer function below a transition frequency using a power-law model.
 
+    Parameters
+    ----------
+    f : array_like
+        Frequencies (Hz) at which the transfer function is defined.
+    tf : array_like
+        Complex-valued transfer function at each frequency in `f`.
+    f_trans : float
+        Transition frequency (Hz) below which extrapolation is applied.
+    power : float
+        Exponent of the power law (e.g., -2 implies 1/f² behavior).
+    size : int, optional
+        Number of points above `f_trans` to use for fitting if `solver=False`. Default is 2.
+    solver : bool, optional
+        If True, use solver-based extrapolation from one sample. If False, use magnitude fitting. Default is True.
+
+    Returns
+    -------
+    tfnew : ndarray
+        Complex-valued transfer function over `f`, extrapolated below `f_trans`.
+    """
     idx = dsp.index_of_the_nearest(f, f_trans)
 
     if solver:
@@ -201,50 +246,80 @@ def tf_power_extrapolate(f, tf, f_trans, power, size=2, solver=True):
     return tfnew
 
 def add_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
-	""" return the sum of transfer functions
-	Args:
-		f: fourier frequencies (Hz)
-		tf1: TF instance 1
-		tf2: TF instance 2
-		extrapolate: extrapolate the tf in a power law
-		f_trans: transition frequency
-		power: power in power law
-		size: point size to be used for fit (not needed for solver)
-		solver: use solver or not (not = fit)
-	"""
+    """
+    Return the sum of two transfer functions, with optional extrapolation below a transition frequency.
 
-	tf1f = tf1(f)
-	tf2f = tf2(f)
+    Parameters
+    ----------
+    f : array_like
+        Fourier frequencies (Hz) at which to evaluate the transfer functions.
+    tf1 : callable
+        First transfer function. Should accept `f` and return complex values.
+    tf2 : callable
+        Second transfer function. Should accept `f` and return complex values.
+    extrapolate : bool, optional
+        Whether to extrapolate the sum below `f_trans` using a power law. Default is False.
+    f_trans : float, optional
+        Transition frequency (Hz) below which extrapolation is applied. Default is 1e-1.
+    power : float, optional
+        Power-law exponent (e.g., -2 implies 1/f² behavior). Default is -2.
+    size : int, optional
+        Number of points above `f_trans` to use for fitting if `solver=False`. Default is 2.
+    solver : bool, optional
+        If True, use solver-based extrapolation. If False, use least-squares fitting. Default is True.
 
-	if extrapolate:
-		tf = tf_power_extrapolate(f, tf1f + tf2f, f_trans=f_trans, power=power, size=size, solver=solver)
-	else:
-		tf = tf1f + tf2f
+    Returns
+    -------
+    tf : ndarray
+        Complex-valued array of the summed transfer functions (extrapolated if enabled).
+    """
+    tf1f = tf1(f)
+    tf2f = tf2(f)
 
-	return tf
+    if extrapolate:
+        tf = tf_power_extrapolate(f, tf1f + tf2f, f_trans=f_trans, power=power, size=size, solver=solver)
+    else:
+        tf = tf1f + tf2f
+
+    return tf
 
 def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
-	""" return the product of transfer functions
-	Args:
-		f: fourier frequencies (Hz)
-		tf1: TF instance 1
-		tf2: TF instance 2
-		extrapolate: extrapolate the tf in a power law
-		f_trans: transition frequency
-		power: power in power law
-		size: point size to be used for fit (not needed for solver)
-		solver: use solver or not (not = fit)
-	"""
+    """
+    Return the product of two transfer functions, with optional extrapolation below a transition frequency.
 
-	tf1f = tf1(f)
-	tf2f = tf2(f)
+    Parameters
+    ----------
+    f : array_like
+        Fourier frequencies (Hz) at which to evaluate the transfer functions.
+    tf1 : callable
+        First transfer function. Should accept `f` and return complex values.
+    tf2 : callable
+        Second transfer function. Should accept `f` and return complex values.
+    extrapolate : bool, optional
+        Whether to extrapolate the product below `f_trans` using a power law. Default is False.
+    f_trans : float, optional
+        Transition frequency (Hz) below which extrapolation is applied. Default is 1e-1.
+    power : float, optional
+        Power-law exponent (e.g., -2 implies 1/f² behavior). Default is -2.
+    size : int, optional
+        Number of points above `f_trans` to use for fitting if `solver=False`. Default is 2.
+    solver : bool, optional
+        If True, use solver-based extrapolation. If False, use least-squares fitting. Default is True.
 
-	if extrapolate:
-		tf = tf_power_extrapolate(f, tf1f * tf2f, f_trans=f_trans, power=power, size=size, solver=solver)
-	else:
-		tf = tf1f * tf2f
+    Returns
+    -------
+    tf : ndarray
+        Complex-valued array of the multiplied transfer functions (extrapolated if enabled).
+    """
+    tf1f = tf1(f)
+    tf2f = tf2(f)
 
-	return tf
+    if extrapolate:
+        tf = tf_power_extrapolate(f, tf1f * tf2f, f_trans=f_trans, power=power, size=size, solver=solver)
+    else:
+        tf = tf1f * tf2f
+
+    return tf
 
 def gain_for_crossover_frequency(Kp_log2, f_cross, kind='I'):
     """
