@@ -428,6 +428,111 @@ class DoubleIntegratorComponent(Component):
         self.TF = partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF)
 
 
+class PIIControllerComponent(Component):
+    """
+    Proportional + Integrator + Double Integrator controller component.
+
+    This component models a control law consisting of:
+        - A proportional term (P)
+        - A first-order integrator (I)
+        - A second-order integrator (II)
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz.
+    Kp : float
+        Proportional gain (log₂ scale).
+    Ki : float
+        First integrator gain (log₂ scale).
+    Kii : float
+        Second integrator gain (log₂ scale).
+    extrapolate : tuple(bool, float)
+        Tuple (enable_extrapolation, transition_frequency) for the double integrator.
+
+    Attributes
+    ----------
+    Kp : float
+        Proportional gain.
+    Ki : float
+        First integrator gain.
+    Kii : float
+        Second integrator gain.
+    """
+    def __init__(self, name, sps, Kp, Ki, Kii, extrapolate=(False, 1e2)):
+        self.sps = sps
+        self.extrapolate = extrapolate
+        self._Kp = 2**float(Kp)
+        self._Ki = 2**float(Ki)
+        self._Kii = 2**float(Kii)
+
+        # Create the individual components
+        P = Component("P", sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
+        I = Component("I", sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
+        II = Component("II", sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
+        II.TF = partial(II.TF, extrapolate=self.extrapolate[0], f_trans=self.extrapolate[1], power=-2)
+
+        PII = P + I + II
+        super().__init__(name, sps, PII.nume, PII.deno, unit=PII.unit)
+
+        self.TE = PII.TE
+        self.TE.name = name
+        self.TF = partial(aux.add_transfer_function, tf1=P.TF, tf2=partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF))
+
+        self.properties = {
+            'Kp': (lambda: self.Kp, lambda value: setattr(self, 'Kp', value)),
+            'Ki': (lambda: self.Ki, lambda value: setattr(self, 'Ki', value)),
+            'Kii': (lambda: self.Kii, lambda value: setattr(self, 'Kii', value)),
+        }
+
+    def __deepcopy__(self, memo):
+        new_obj = PIIControllerComponent.__new__(PIIControllerComponent)
+        new_obj.__init__(self.name, self.sps, np.log2(self._Kp), np.log2(self._Ki), np.log2(self._Kii), self.extrapolate)
+        if getattr(self, '_loop', None) is not None:
+            new_obj._loop = self._loop
+        return new_obj
+
+    @property
+    def Kp(self):
+        return self._Kp
+
+    @Kp.setter
+    def Kp(self, value):
+        self._Kp = 2**float(value)
+        self.update_component()
+
+    @property
+    def Ki(self):
+        return self._Ki
+
+    @Ki.setter
+    def Ki(self, value):
+        self._Ki = 2**float(value)
+        self.update_component()
+
+    @property
+    def Kii(self):
+        return self._Kii
+
+    @Kii.setter
+    def Kii(self, value):
+        self._Kii = 2**float(value)
+        self.update_component()
+
+    def update_component(self):
+        P = Component("P", self.sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
+        I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
+        II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
+        II.TF = partial(II.TF, extrapolate=self.extrapolate[0], f_trans=self.extrapolate[1], power=-2)
+        PII = P + I + II
+        super().__init__(self.name, self.sps, PII.nume, PII.deno, unit=PII.unit)
+        self.TE = PII.TE
+        self.TE.name = self.name
+        self.TF = partial(aux.add_transfer_function, tf1=P.TF, tf2=partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF))
+
+
 class PAComponent(Component):
     """
     Phase accumulator.
