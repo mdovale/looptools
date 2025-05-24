@@ -89,15 +89,10 @@ class MokuLaserLock(LOOP):
             for i in range(nlf):
                 self.add_component(LPFComponent(f"LPF{i+1}", self.sps, Klf))
 
-        # : P-controller
-        # TODO: Maybe replace with PI-controller with I-gain set to zero
-        if "P" not in off:
-            self.add_component(LeftBitShiftComponent("P", self.sps, Kp))
-
-        # : II-controller
+        # : P+II-controller
         # TODO: Replace gain-based DoubleIntegratorComponent with a frequency-based one.
-        if "II" not in off:
-            self.add_component(DoubleIntegratorComponent("II", self.sps, Ki, Kii, extrapolate))
+        if "PII" not in off:
+            self.add_component(PIIControllerComponent("PII", self.sps, Kp, Ki, Kii, extrapolate))
 
         # : DAC
         if "Kdac" not in off:
