@@ -7,6 +7,7 @@ from scipy.interpolate import interp1d
 from functools import partial
 from looptools.component import Component
 from looptools.dimension import Dimension
+from looptools.plots import default_rc
 import looptools.auxiliary as aux
 import matplotlib.pyplot as plt
 import logging
@@ -343,20 +344,6 @@ class LOOP:
         axes : tuple of matplotlib.axes.Axes
             The magnitude and phase axes used.
         """
-        default_rc = {
-            'figure.dpi': 150,
-            'font.size': 8,
-            'axes.labelsize': 8,
-            'axes.titlesize': 9,
-            'xtick.labelsize': 8,
-            'ytick.labelsize': 8,
-            'axes.grid': True,
-            'grid.color': '#FFD700',
-            'grid.linewidth': 0.7,
-            'grid.linestyle': '--',
-            'axes.prop_cycle': plt.cycler('color', ['#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32', '#FF69B4', '#FF4500', '#1E90FF', '#8A2BE2', '#FFA07A', '#8B0000']),
-        }
-
         with plt.rc_context(default_rc):
             if axes is None:
                 fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=figsize, sharex=True)
@@ -462,23 +449,6 @@ class LOOP:
         fig : matplotlib.figure.Figure
         ax : matplotlib.axes.Axes
         """
-        default_rc = {
-            'figure.dpi': 150,
-            'font.size': 8,
-            'axes.labelsize': 8,
-            'axes.titlesize': 9,
-            'xtick.labelsize': 8,
-            'ytick.labelsize': 8,
-            'axes.grid': True,
-            'grid.color': '#FFD700',
-            'grid.linewidth': 0.7,
-            'grid.linestyle': '--',
-            'axes.prop_cycle': plt.cycler('color', [
-                '#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32',
-                '#FF69B4', '#FF4500', '#1E90FF', '#8A2BE2', '#FFA07A', '#8B0000'
-            ]),
-        }
-
         with plt.rc_context(default_rc), warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             if ax is None:

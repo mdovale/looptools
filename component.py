@@ -6,6 +6,7 @@ import scipy.signal as sig
 import matplotlib.pyplot as plt
 from looptools import auxiliary as aux
 from looptools import dimension as dim
+from looptools.plots import default_rc
 import logging
 logger = logging.getLogger(__name__)
 
@@ -245,20 +246,6 @@ class Component:
         margin : float
             Phase margin (degrees).
         """
-        default_rc = {
-            'figure.dpi': 150,
-            'font.size': 8,
-            'axes.labelsize': 8,
-            'axes.titlesize': 9,
-            'xtick.labelsize': 8,
-            'ytick.labelsize': 8,
-            'axes.grid': True,
-            'grid.color': '#FFD700',
-            'grid.linewidth': 0.7,
-            'grid.linestyle': '--',
-            'axes.prop_cycle': plt.cycler('color', ['#000000', '#DC143C', '#00BFFF', '#FFD700', '#32CD32', '#FF69B4', '#FF4500']),
-        }
-
         omega = 2 * np.pi * np.asarray(frfr)
 
         bode, ugf, margin = compute_bode(self.TE, omega, dB=dB, deg=deg, wrap=wrap)
@@ -283,18 +270,9 @@ class Component:
             # Plot phase
             ax_phase.semilogx(bode["f"], bode["phase"], label=lbl, *args, **kwargs)
             ax_phase.set_ylabel("Phase (deg)" if deg else "Phase (rad)")
-
-            # # Highlight UGF
-            # if ugf is not None:
-            #     ax_mag.axvline(ugf, ls="--", color="magenta", lw=1)
-            #     ax_phase.axvline(ugf, ls="--", color="magenta", lw=1)
-            #     ax_mag.text(ugf, ax_mag.get_ylim()[0], f"UGF: {ugf:.2e} Hz", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
-            #     ax_phase.text(ugf, ax_phase.get_ylim()[0], f"PM: {margin:.1f}°", fontsize=7, color="magenta", verticalalignment='bottom', horizontalalignment='left')
-
             ax_phase.set_xlabel("Frequency (Hz)")
             ax_mag.set_xlim(bode["f"][0], bode["f"][-1])
             ax_phase.set_xlim(bode["f"][0], bode["f"][-1])
-
             ax_mag.minorticks_on()
             ax_phase.minorticks_on()
             ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
