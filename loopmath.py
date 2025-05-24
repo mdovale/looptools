@@ -4,6 +4,38 @@ from scipy.optimize import curve_fit
 from looptools import dsp
 
 def loop_crossover(loop1, loop2, frfr):
+    """
+    Find the frequency at which the open-loop gain of two control loops crosses over.
+
+    This function computes the magnitude of the open-loop transfer functions for two control
+    loops (`loop1` and `loop2`) over a frequency grid and identifies the first frequency at
+    which their magnitudes intersect (i.e., cross each other). This is useful in control
+    systems to detect dominance crossover points between nested or competing loops.
+
+    Parameters
+    ----------
+    loop1 : object
+        Control loop object that implements a method `Gf(f)` returning the complex-valued
+        open-loop transfer function evaluated at frequencies `f`.
+    loop2 : object
+        Another control loop object with a compatible `Gf(f)` interface.
+    frfr : array_like
+        Frequency grid (Hz) over which to evaluate the transfer functions.
+
+    Returns
+    -------
+    crossover_freq : float
+        The first frequency (Hz) where the magnitude of `loop1.Gf` crosses that of `loop2.Gf`.
+        Returns `np.nan` if no crossover is detected.
+
+    Notes
+    -----
+    - The crossover is detected by evaluating the sign of the difference between |G1(f)| and |G2(f)|
+      and looking for the first sign change.
+    - Zeros in the difference are treated as positive to ensure consistent sign behavior.
+    - This function is useful in tuning multi-loop control systems to identify the frequency
+      at which control authority shifts between loops.
+    """
     Gf1 = np.abs(loop1.Gf(f=frfr)) # Loop 1 open-loop transfer function magnitude
     Gf2 = np.abs(loop2.Gf(f=frfr)) # Loop 2 open-loop transfer function magnitude
     diff = np.array(Gf1-Gf2)
@@ -20,120 +52,249 @@ def loop_crossover(loop1, loop2, frfr):
         return np.nan
 
 def wrap_phase(phase, deg=False):
-	""" wrap a phase
-	Args:
-		phase: phase to wrap
-		deg: input phase in degree or not
-	"""
+    """
+    Wrap phase values to the principal interval [-π, π) or [-180°, 180°).
 
-	if deg:
-		phase_new = (phase + 180.0) % (2 * 180.0) - 180.0
-	else:
-		phase_new = (phase + np.pi) % (2 * np.pi) - np.pi
+    This function ensures that the input phase values are wrapped into the standard
+    interval, either in radians or degrees, depending on the `deg` flag. This is
+    useful for visualizing or processing phase responses without discontinuities
+    exceeding a full cycle.
 
-	return phase_new
+    Parameters
+    ----------
+    phase : array_like or float
+        Input phase value(s) to wrap. Can be a scalar or array.
+    deg : bool, optional
+        If True, assume input is in degrees and wrap to [-180, 180).
+        If False, assume radians and wrap to [-π, π). Default is False.
+
+    Returns
+    -------
+    phase_new : ndarray or float
+        Wrapped phase values within the specified interval.
+
+    Notes
+    -----
+    - Wrapping is done using modular arithmetic:
+        - In degrees:    (phase + 180) % 360 - 180
+        - In radians:    (phase + π)   % (2π) - π
+    - This does not perform unwrapping or differentiation.
+    - Useful as a post-processing step after phase extraction or manipulation.
+    """
+
+    if deg:
+        phase_new = (phase + 180.0) % (2 * 180.0) - 180.0
+    else:
+        phase_new = (phase + np.pi) % (2 * np.pi) - np.pi
+
+    return phase_new
 
 def tf_group_delay(f, tf):
-	""" compute groupd delay of TF (sec)
-	Args: 
-		f: fourier frequency (Hz)
-		tf: complex transfer function
-	"""
+    """
+    Compute the group delay of a complex transfer function.
 
-	# : To avoid making all Nan due to np.unwrap, the case with Nan is carefully treated
-	tfnew, nanarray = dsp.nan_checker(tf)
-	isnan = True in nanarray
+    The group delay is calculated as the negative derivative of the unwrapped phase
+    with respect to angular frequency ω = 2πf. This represents the time delay
+    experienced by the envelope of a modulated signal through the system.
 
-	phase = np.angle(tfnew, deg=False)
-	phase = np.unwrap(phase)
-	gd = - np.gradient(phase, 2*np.pi*f[~nanarray])
+    Parameters
+    ----------
+    f : array_like
+        Fourier frequencies (Hz) at which the transfer function is evaluated.
+    tf : array_like
+        Complex-valued transfer function evaluated at frequencies `f`.
 
-	if not isnan:
-		output = gd
-	else:
-		output = np.zeros(tf.size)
-		idx = 0
-		for i, t in enumerate(tf):
-			if not nanarray[i]:
-				output[i] = gd[idx]
-				idx += 1
-			else:
-				output[i] = t
+    Returns
+    -------
+    gd : ndarray
+        Group delay in seconds. If `tf` contains NaNs, the output retains their positions
+        and fills corresponding delays accordingly.
 
-	return output
+    Notes
+    -----
+    - Internally unwraps the phase using `np.unwrap` before differentiating.
+    - Uses `np.gradient` to estimate the derivative of the unwrapped phase over `2πf`.
+    - Handles `NaN` values in `tf` robustly using `dsp.nan_checker`, preserving array size.
+    - Group delay is defined as:
+        gd(f) = -d(phase) / d(ω) = -d(∠TF) / d(2πf)
+    """
+    # : To avoid making all Nan due to np.unwrap, the case with Nan is carefully treated
+    tfnew, nanarray = dsp.nan_checker(tf)
+    isnan = True in nanarray
+
+    phase = np.angle(tfnew, deg=False)
+    phase = np.unwrap(phase)
+    gd = - np.gradient(phase, 2*np.pi*f[~nanarray])
+
+    if not isnan:
+        output = gd
+    else:
+        output = np.zeros(tf.size)
+        idx = 0
+        for i, t in enumerate(tf):
+            if not nanarray[i]:
+                output[i] = gd[idx]
+                idx += 1
+            else:
+                output[i] = t
+
+    return output
 
 def polynomial_conversion_s_to_z(s_coeffs, sps):
-	""" convert polynomial coefficients in s to z
-	Args:
-		s_coeffs: polynomial coefficients in the Laplace domain
-		sps: sampling frequency of the new z domain
-	"""
+    """
+    Convert polynomial coefficients from the Laplace (s) domain to the discrete-time (z) domain.
 
-	size = np.shape(s_coeffs)[0]
-	z_coeffs = np.zeros(size)
-	for i,c in enumerate(s_coeffs):
-		order = size-(i+1)
-		base0 = np.array([sps, -sps])
-		base = np.ones(1)
-		for j in range(order):
-			base = np.convolve(base, base0)
-		coord = c*base
-		coord = np.concatenate((np.zeros(size-order-1), coord), axis=0)
-		z_coeffs += coord
+    This function performs a polynomial transformation based on the backward difference
+    approximation:
+        s ≈ (1 - z⁻¹) * sps
+    where `sps` is the sampling frequency. Each power of `s` in the polynomial is mapped
+    to its corresponding polynomial in `z⁻¹`.
 
-	return z_coeffs
+    Parameters
+    ----------
+    s_coeffs : array_like
+        Coefficients of the polynomial in the Laplace domain (highest power first).
+        For example, [a_n, a_{n-1}, ..., a_0] corresponds to: a_n sⁿ + a_{n-1} sⁿ⁻¹ + ... + a_0.
+    sps : float
+        Sampling frequency (Hz) used for the s-to-z transformation.
+
+    Returns
+    -------
+    z_coeffs : ndarray
+        Coefficients of the transformed polynomial in the z domain (highest power first),
+        using the backward difference approximation.
+
+    Notes
+    -----
+    - This conversion maps an analog transfer function (in `s`) to a digital one (in `z`)
+        by applying the backward difference formula to each term of the polynomial.
+    - The resulting polynomial is not necessarily normalized.
+    - This transformation preserves the shape of the analog response for low frequencies,
+        but is only accurate for systems sampled at sufficiently high rates (relative to bandwidth).
+    """
+
+    size = np.shape(s_coeffs)[0]
+    z_coeffs = np.zeros(size)
+    for i,c in enumerate(s_coeffs):
+        order = size-(i+1)
+        base0 = np.array([sps, -sps])
+        base = np.ones(1)
+        for j in range(order):
+            base = np.convolve(base, base0)
+        coord = c*base
+        coord = np.concatenate((np.zeros(size-order-1), coord), axis=0)
+        z_coeffs += coord
+
+    return z_coeffs
 
 @singledispatch
 def get_margin(tf, f, dB=False, deg=True):
-	""" compute a phase margin
-	Args:
-		tf: list of [mag, phase]
-		f: fourier frequencies (Hz)
-		dB: magnitude in dB or not
-		deg: phase in degree or not
-	"""
+    """
+    Compute the phase margin from a transfer function given as [magnitude, phase] arrays.
 
-	# : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
-	mag, nanarray = dsp.nan_checker(tf[0])
-	phase = tf[1][~nanarray]
-	#phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
-	fnew = f[~nanarray]
+    The phase margin is calculated at the frequency where the magnitude is closest to
+    unity gain (|TF| ≈ 1) or 0 dB, depending on `dB`. This is useful for assessing stability
+    margins in control systems.
 
-	if dB:
-		index = dsp.index_of_the_nearest(mag, 0)
-	else:
-		index = dsp.index_of_the_nearest(mag, 1)
-	ugf = fnew[index]
-	if deg:
-		margin = 180 + phase[index]
-	else:
-		margin = np.pi + phase[index]
-	return ugf, margin
+    Parameters
+    ----------
+    tf : list of array_like
+        A list containing two arrays: [magnitude, phase].
+        - magnitude should be in linear scale or dB, depending on `dB`.
+        - phase should be in degrees or radians, depending on `deg`.
+    f : array_like
+        Frequencies (Hz) corresponding to the values in `tf`.
+    dB : bool, optional
+        If True, treat magnitude as decibels and find where magnitude is closest to 0 dB.
+        If False, find where magnitude is closest to 1 (linear). Default is False.
+    deg : bool, optional
+        If True, return phase margin in degrees. If False, return in radians. Default is True.
+
+    Returns
+    -------
+    ugf : float
+        Unity gain frequency (Hz), where magnitude crosses unity or 0 dB.
+    margin : float
+        Phase margin at the unity gain frequency (in degrees or radians).
+
+    Notes
+    -----
+    - NaNs in magnitude or phase are removed before processing.
+    - Phase is not unwrapped before evaluating the margin. This may introduce ±360° jumps near boundaries.
+    - A positive phase margin generally implies stable feedback behavior.
+
+    See Also
+    --------
+    get_gain_margin : Compute the gain margin at the phase crossover frequency.
+    get_margin.register(np.ndarray) : Overload for complex-valued transfer functions.
+    """
+    # : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
+    mag, nanarray = dsp.nan_checker(tf[0])
+    phase = tf[1][~nanarray]
+    #phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
+    fnew = f[~nanarray]
+
+    if dB:
+        index = dsp.index_of_the_nearest(mag, 0)
+    else:
+        index = dsp.index_of_the_nearest(mag, 1)
+    ugf = fnew[index]
+    if deg:
+        margin = 180 + phase[index]
+    else:
+        margin = np.pi + phase[index]
+    return ugf, margin
 
 @get_margin.register(np.ndarray)
 def _(tf, f, deg=True):
-	""" compute a phase margin
-	Args:
-		tf: complex transfer function array
-		f: fourier frequencies (Hz)
-		deg: phase in degree or not
-	"""
+    """
+    Compute the phase margin from a complex-valued transfer function array.
 
-	# : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
-	tfnew, nanarray = dsp.nan_checker(tf)
-	fnew = f[~nanarray]
+    The phase margin is evaluated at the frequency where the magnitude of the complex transfer
+    function is closest to unity (|TF| ≈ 1). This overload handles full complex TF data directly.
 
-	mag = abs(tfnew)
-	phase = np.angle(tfnew, deg=deg)
-	#phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
-	index = dsp.index_of_the_nearest(mag, 1)
-	
-	ugf = fnew[index]
-	if deg:
-		margin = 180 + phase[index]
-	else:
-		margin = np.pi + phase[index]
-	return ugf, margin
+    Parameters
+    ----------
+    tf : ndarray
+        Complex-valued transfer function evaluated at frequencies `f`.
+    f : array_like
+        Frequencies (Hz) corresponding to the values in `tf`.
+    deg : bool, optional
+        If True, return phase margin in degrees. If False, return in radians. Default is True.
+
+    Returns
+    -------
+    ugf : float
+        Unity gain frequency (Hz), where |TF| ≈ 1.
+    margin : float
+        Phase margin at the unity gain frequency (in degrees or radians).
+
+    Notes
+    -----
+    - NaNs in the complex transfer function are removed before computing magnitude and phase.
+    - Phase is not unwrapped before evaluation. For systems near ±180° phase crossings, this may matter.
+    - A positive phase margin generally implies stable open-loop behavior in control systems.
+
+    See Also
+    --------
+    get_margin : Generic overload accepting magnitude/phase pairs.
+    get_gain_margin : Compute the gain margin at the phase crossover frequency.
+    """
+    # : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
+    tfnew, nanarray = dsp.nan_checker(tf)
+    fnew = f[~nanarray]
+
+    mag = abs(tfnew)
+    phase = np.angle(tfnew, deg=deg)
+    #phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
+    index = dsp.index_of_the_nearest(mag, 1)
+
+    ugf = fnew[index]
+    if deg:
+        margin = 180 + phase[index]
+    else:
+        margin = np.pi + phase[index]
+    return ugf, margin
 
 def tf_power_fitting(f, tf, fnew, power):
     """
