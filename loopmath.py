@@ -505,7 +505,7 @@ def gain_for_crossover_frequency(Kp_log2, f_cross, kind='I'):
 
     Examples
     --------
-    >>> gain_for_crossover_frequency(3, 1e4, 80e6, kind='I')
+    >>> gain_for_crossover_frequency(3, 1e4, kind='I')
     9.3219  # equivalent to Ki = 2^9.32
     """
     assert kind in ['I', 'II'], "kind must be 'I' or 'II'"
@@ -524,3 +524,25 @@ def gain_for_crossover_frequency(Kp_log2, f_cross, kind='I'):
         Ki = Kp * w**2
 
     return np.log2(Ki)
+
+def log2_gain_to_db(log2_gain):
+    """
+    Converts base-2 logarithmic gain to dB.
+
+    Parameters
+    ----------
+    log2_gain : float
+        Gain as log₂(gain), as used in PIControllerComponent.
+
+    Returns
+    -------
+    float
+        Equivalent gain in dB.
+
+    Examples
+    --------
+    >>> log2_gain_to_db(3.3219)
+    20.0
+    """
+    linear_gain = 2**log2_gain
+    return 20 * np.log10(linear_gain)
