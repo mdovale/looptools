@@ -245,3 +245,46 @@ def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2
 		tf = tf1f * tf2f
 
 	return tf
+
+def gain_for_crossover_frequency(Kp_log2, f_cross, kind='I'):
+    """
+    Compute log2 gain for an I or II block so that its magnitude matches the P gain at f_cross.
+
+    This function helps translate a Moku-style crossover frequency between P and I (or P and II)
+    into the gain value (in log₂ units) needed for I or II blocks in bit-shift-based controllers.
+
+    Parameters
+    ----------
+    Kp_log2 : float
+        Proportional gain in log₂ scale (i.e., log₂(Kp)).
+    f_cross : float
+        Desired crossover frequency [Hz] between P and I (or P and II).
+    kind : {'I', 'II'}
+        Which gain to compute: 'I' for integrator (1/s), 'II' for double integrator (1/s²).
+
+    Returns
+    -------
+    float
+        Log₂ gain for the I or II block that matches |P| at `f_cross`.
+
+    Examples
+    --------
+    >>> gain_for_crossover_frequency(3, 1e4, 80e6, kind='I')
+    9.3219  # equivalent to Ki = 2^9.32
+    """
+    assert kind in ['I', 'II'], "kind must be 'I' or 'II'"
+    
+    # Linear gain of P
+    Kp = 2 ** Kp_log2
+
+    # Compute angular frequency
+    w = 2 * np.pi * f_cross
+
+    if kind == 'I':
+        # |Ki / (jw)| = |Kp| --> Ki = Kp * w
+        Ki = Kp * w
+    elif kind == 'II':
+        # |Kii / (jw)^2| = |Kp| --> Kii = Kp * w^2
+        Ki = Kp * w**2
+
+    return np.log2(Ki)
