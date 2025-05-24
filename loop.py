@@ -3,12 +3,11 @@ import control
 import copy
 import itertools
 import warnings
-from scipy.interpolate import interp1d
 from functools import partial
 from looptools.component import Component
 from looptools.dimension import Dimension
 from looptools.plots import default_rc
-import looptools.auxiliary as aux
+from looptools.loopmath import *
 import matplotlib.pyplot as plt
 import logging
 logger = logging.getLogger(__name__)

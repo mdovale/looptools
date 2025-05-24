@@ -1,9 +1,6 @@
-import copy
-from functools import partial
 from looptools.dimension import Dimension
 from looptools.components import *
 from looptools.loop import LOOP
-from looptools import auxiliary as aux
 import logging
 logger = logging.getLogger(__name__)
 

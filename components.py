@@ -2,7 +2,7 @@ import numpy as np
 from functools import partial
 from looptools.component import Component
 from looptools.dimension import Dimension
-from looptools import auxiliary as aux
+from looptools.loopmath import *
 import logging
 logger = logging.getLogger(__name__)
 
@@ -388,7 +388,7 @@ class DoubleIntegratorComponent(Component):
         super().__init__(name, sps, DoubleI.nume, DoubleI.deno, unit=DoubleI.unit)
         self.TE = DoubleI.TE
         self.TE.name = name
-        self.TF = partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF)
+        self.TF = partial(add_transfer_function, tf1=I.TF, tf2=II.TF)
         self.properties = {'Ki': (lambda: self.Ki, lambda value: setattr(self, 'Ki', value)),
                            'Kii': (lambda: self.Kii, lambda value: setattr(self, 'Kii', value))}
         
@@ -425,7 +425,7 @@ class DoubleIntegratorComponent(Component):
         super().__init__(self.name, self.sps, DoubleI.nume, DoubleI.deno, unit=DoubleI.unit)
         self.TE = DoubleI.TE
         self.TE.name = self.name
-        self.TF = partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF)
+        self.TF = partial(add_transfer_function, tf1=I.TF, tf2=II.TF)
 
 
 class PIIControllerComponent(Component):
@@ -479,7 +479,7 @@ class PIIControllerComponent(Component):
 
         self.TE = PII.TE
         self.TE.name = name
-        self.TF = partial(aux.add_transfer_function, tf1=P.TF, tf2=partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF))
+        self.TF = partial(add_transfer_function, tf1=P.TF, tf2=partial(add_transfer_function, tf1=I.TF, tf2=II.TF))
 
         self.properties = {
             'Kp': (lambda: self.Kp, lambda value: setattr(self, 'Kp', value)),
@@ -530,7 +530,7 @@ class PIIControllerComponent(Component):
         super().__init__(self.name, self.sps, PII.nume, PII.deno, unit=PII.unit)
         self.TE = PII.TE
         self.TE.name = self.name
-        self.TF = partial(aux.add_transfer_function, tf1=P.TF, tf2=partial(aux.add_transfer_function, tf1=I.TF, tf2=II.TF))
+        self.TF = partial(add_transfer_function, tf1=P.TF, tf2=partial(add_transfer_function, tf1=I.TF, tf2=II.TF))
 
 
 class PAComponent(Component):
@@ -634,7 +634,7 @@ class ActuatorComponent(Component):
     """
     PZT actuator model with gain and cutoff frequency.
 
-    Converts s-domain coefficients into z-domain using aux.polynomial_conversion_s_to_z.
+    Converts s-domain coefficients into z-domain using polynomial_conversion_s_to_z.
 
     Parameters
     ----------
@@ -659,8 +659,8 @@ class ActuatorComponent(Component):
     def __init__(self, name, sps, Ka_pzt, Fa_pzt, unit):
         self._Fa_pzt = Fa_pzt
         self._Ka_pzt = Ka_pzt
-        nume = aux.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), sps)
-        deno = aux.polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), sps)
+        nume = polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), sps)
+        deno = polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), sps)
         super().__init__(name, sps, nume, deno, unit=unit)
         self.properties = {'Ka_pzt': (lambda: self.Ka_pzt, lambda value: setattr(self, 'Ka_pzt', value)),
                             'Fa_pzt': (lambda: self.Fa_pzt, lambda value: setattr(self, 'Fa_pzt', value))}
@@ -691,8 +691,8 @@ class ActuatorComponent(Component):
         self.update_component()
 
     def update_component(self):
-        nume = aux.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), self.sps)
-        deno = aux.polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), self.sps)
+        nume = polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), self.sps)
+        deno = polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), self.sps)
         super().__init__(self.name, self.sps, nume, deno, unit=self.unit)
 
 
@@ -710,8 +710,8 @@ class ImplicitAccumulatorComponent(Component):
         Sample rate in Hz.
     """
     def __init__(self, name, sps):
-        nume = aux.polynomial_conversion_s_to_z(np.array([2.0*np.pi]), sps)
-        deno = aux.polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps)
+        nume = polynomial_conversion_s_to_z(np.array([2.0*np.pi]), sps)
+        deno = polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps)
         super().__init__(name, sps, nume, deno, unit=Dimension(["rad"], ["Hz"]))
 
     def __deepcopy__(self, memo):

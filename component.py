@@ -4,7 +4,7 @@ import copy
 from functools import partial
 import scipy.signal as sig
 import matplotlib.pyplot as plt
-from looptools import auxiliary as aux
+from looptools.loopmath import *
 from looptools import dimension as dim
 from looptools.plots import default_rc
 import logging
@@ -116,7 +116,7 @@ class Component:
         """
         new_TF = control.parallel(self.TE, other.TE)
         new = Component(self.name+other.name, sps=self.sps, tf=new_TF, unit=self.unit)
-        new.TF = partial(aux.add_transfer_function, tf1=self.TF, tf2=other.TF)
+        new.TF = partial(add_transfer_function, tf1=self.TF, tf2=other.TF)
 
         return new
 
@@ -141,7 +141,7 @@ class Component:
         new_TF.name = new_name
 
         new = Component(new_name, sps=self.sps, tf=new_TF, unit=new_unit)
-        new.TF = partial(aux.mul_transfer_function, tf1=self.TF, tf2=other.TF)
+        new.TF = partial(mul_transfer_function, tf1=self.TF, tf2=other.TF)
 
         return new
 
@@ -334,13 +334,13 @@ def compute_bode(tf, omega, dB=False, deg=True, wrap=True):
     if dB:
         mag = 20*np.log10(mag)
     if wrap:
-        phase = aux.wrap_phase(phase)
+        phase = wrap_phase(phase)
     if deg: # deg of control.bode does not work for some reason
         phase *= (180/np.pi)
     bode = {"f":fourier_freq, "mag":mag, "phase":phase}
 
     # : compute UGF
-    ugf, margin = aux.get_margin([mag,phase], fourier_freq, dB=dB, deg=deg)
+    ugf, margin = get_margin([mag,phase], fourier_freq, dB=dB, deg=deg)
 
     return bode, ugf, margin
 
@@ -389,6 +389,6 @@ def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2,
     tf = numerator/denominator
 
     if extrapolate:
-        tf = aux.tf_power_extrapolate(f, tf, f_trans=f_trans, power=power, size=size, solver=solver)
+        tf = tf_power_extrapolate(f, tf, f_trans=f_trans, power=power, size=size, solver=solver)
 
     return tf

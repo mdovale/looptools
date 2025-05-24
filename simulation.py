@@ -1,7 +1,7 @@
 import copy
 import numpy as np
 from scipy.optimize import minimize
-import looptools.auxiliary as aux
+from looptools.loopmath import *
 import logging
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def parameter_sweep_1d(frfr, noise, loop, comp, sweep, space, _from, _to, isTF=T
     for p in space:
         fsweep(p)
         if isTF:
-            ugf_tmp, margin_tmp = aux.get_margin(_loop.Gf(f=frfr), frfr, deg=True)
+            ugf_tmp, margin_tmp = get_margin(_loop.Gf(f=frfr), frfr, deg=True)
         else:
             _,ugf_tmp, margin_tmp = _loop.Gc.bode(2*np.pi*frfr)
         asd_tmp,_,_,rms_tmp = _loop.noise_propagation_asd(frfr, noise, _from=_from, _to=_to, isTF=isTF, view=False)
@@ -61,7 +61,7 @@ def loop_crossover_optimizer(loop1, loop2, frfr, desired_f_cross, meta, method="
                 setattr(loop_1, attr, int(x[i]))
             else:
                 setattr(loop_1, attr, x[i])
-        f_cross = aux.loop_crossover(loop_1, loop_2, frfr)
+        f_cross = loop_crossover(loop_1, loop_2, frfr)
         return  np.abs(f_cross - desired)**2
     
     x0 = []
@@ -89,7 +89,7 @@ def loop_crossover_optimizer(loop1, loop2, frfr, desired_f_cross, meta, method="
         else:
             setattr(_loop_1, attr, popt.x[i])
 
-    f_cross = aux.loop_crossover(_loop_1, loop2, frfr)
+    f_cross = loop_crossover(_loop_1, loop2, frfr)
 
     print(f"# ===== Optimization result ==========")
     for i, attr in enumerate(meta):

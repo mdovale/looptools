@@ -1,26 +1,7 @@
 import numpy as np
 from functools import singledispatch
-from scipy.integrate import cumulative_trapezoid
 from scipy.optimize import curve_fit
-import scipy.constants as scc
-
-def integral_rms(fourier_freq, asd, pass_band=None):
-    """ Compute the RMS as integral of an ASD.
-    
-    Parameters
-    ----------
-        fourier_freq: fourier frequency (Hz)
-        asd: amplitude spectral density from which RMS is computed
-        pass_band: [0] = min, [1] = max 
-    """
-    if pass_band is None:
-        pass_band = [-np.inf,np.inf]
-
-    integral_range_min = max(np.min(fourier_freq), pass_band[0])
-    integral_range_max = min(np.max(fourier_freq), pass_band[1])
-    f_tmp, asd_tmp = crop_data(fourier_freq, asd, integral_range_min, integral_range_max)
-    integral_rms2 = cumulative_trapezoid(asd_tmp**2, f_tmp, initial=0)
-    return np.sqrt(integral_rms2[-1])
+from looptools import dsp
 
 def loop_crossover(loop1, loop2, frfr):
     Gf1 = np.abs(loop1.Gf(f=frfr)) # Loop 1 open-loop transfer function magnitude
@@ -60,7 +41,7 @@ def tf_group_delay(f, tf):
 	"""
 
 	# : To avoid making all Nan due to np.unwrap, the case with Nan is carefully treated
-	tfnew, nanarray= nan_checker(tf)
+	tfnew, nanarray = dsp.nan_checker(tf)
 	isnan = True in nanarray
 
 	phase = np.angle(tfnew, deg=False)
@@ -80,21 +61,6 @@ def tf_group_delay(f, tf):
 				output[i] = t
 
 	return output
-
-def nan_checker(x):
-	""" Check if Nan exists in x. If yes, Nan is removed 
-	Args:
-		x: data to be checked
-	"""
-
-	if True in np.isnan(x):
-		logger.warning('Nan was detected in the input array')
-		nanarray = np.isnan(x)
-		xnew = x[~nanarray]
-	else:
-		xnew, nanarray = x, np.full(x.size, False)
-
-	return xnew, nanarray
 
 def polynomial_conversion_s_to_z(s_coeffs, sps):
 	""" convert polynomial coefficients in s to z
@@ -117,17 +83,6 @@ def polynomial_conversion_s_to_z(s_coeffs, sps):
 
 	return z_coeffs
 
-
-def index_of_the_nearest(data, value):
-	""" extract an index at which data gets closest to a value
-	Args:
-		data: data array
-		value: target value
-	"""
-
-	idx = np.argmin(np.abs(np.array(data) - value))
-	return idx
-
 @singledispatch
 def get_margin(tf, f, dB=False, deg=True):
 	""" compute a phase margin
@@ -139,15 +94,15 @@ def get_margin(tf, f, dB=False, deg=True):
 	"""
 
 	# : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
-	mag, nanarray = nan_checker(tf[0])
+	mag, nanarray = dsp.nan_checker(tf[0])
 	phase = tf[1][~nanarray]
 	#phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
 	fnew = f[~nanarray]
 
 	if dB:
-		index = index_of_the_nearest(mag, 0)
+		index = dsp.index_of_the_nearest(mag, 0)
 	else:
-		index = index_of_the_nearest(mag, 1)
+		index = dsp.index_of_the_nearest(mag, 1)
 	ugf = fnew[index]
 	if deg:
 		margin = 180 + phase[index]
@@ -165,13 +120,13 @@ def _(tf, f, deg=True):
 	"""
 
 	# : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
-	tfnew, nanarray = nan_checker(tf)
+	tfnew, nanarray = dsp.nan_checker(tf)
 	fnew = f[~nanarray]
 
 	mag = abs(tfnew)
 	phase = np.angle(tfnew, deg=deg)
 	#phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
-	index = index_of_the_nearest(mag, 1)
+	index = dsp.index_of_the_nearest(mag, 1)
 	
 	ugf = fnew[index]
 	if deg:
@@ -231,12 +186,12 @@ def tf_power_extrapolate(f, tf, f_trans, power, size=2, solver=True):
         solver: use solver or not (not = fit)
     """
 
-    idx = index_of_the_nearest(f, f_trans)
+    idx = dsp.index_of_the_nearest(f, f_trans)
 
     if solver:
         tfnew = tf_power_solver(f[idx], tf[idx], f, power=power)
     else:
-        ftmp, tftmp = crop_data(f, tf, xmin=f_trans, xmax=np.max(f))
+        ftmp, tftmp = dsp.crop_data(f, tf, xmin=f_trans, xmax=np.max(f))
         ftmp = ftmp[:size]
         tftmp = tftmp[:size]
         tfnew = tf_power_fitting(ftmp, tftmp, f, power=power)

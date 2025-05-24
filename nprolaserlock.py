@@ -2,8 +2,8 @@ import copy
 from functools import partial
 from looptools.dimension import Dimension
 from looptools.components import *
+from looptools.loopmath import *
 from looptools.loop import LOOP
-from looptools import auxiliary as aux
 import logging
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ class NPROLaserLock():
         return new_obj
 
     def update_NPROLaserLock(self):
-        self.Gf = partial(aux.add_transfer_function, tf1=self.pzt.Gf, tf2=self.temp.Gf)
+        self.Gf = partial(add_transfer_function, tf1=self.pzt.Gf, tf2=self.temp.Gf)
         # self.Gc = self.temp.point_to_point_component(_from='Fpll', _to='Fpll', suppression=True) + self.pzt.point_to_point_component(_from='Fpll', _to=None, suppression=True)
         # self.Gc.name = "G"
         # self.Gf = partial(LOOP.tf_series, components=[self.Gc], mode=None, self=None)
@@ -164,7 +164,7 @@ class NPROLaserLock():
         bode={'f':f, 'mag':mag, 'phase':phase}
         asd_prop = bode['mag'] * asd
         unit_prop = unit
-        rms = aux.integral_rms(f, asd_prop, [0, np.inf])
+        rms = integral_rms(f, asd_prop, [0, np.inf])
         return asd_prop, unit_prop, bode, rms
         
 
