@@ -79,7 +79,12 @@ class Component:
             self.TE.name = name
 
         elif isinstance(tf, control.TransferFunction):
-            self.nume, self.deno = aux.mytfdata(tf)
+            (nume, deno) = control.tfdata(tf)
+            deno = np.array(deno)[0,0,:]
+            nume = np.array(nume)[0,0,:]
+            deno = np.around(deno, 16)
+            nume = np.around(nume, 16)
+            self.nume, self.deno = nume, deno
             self.TE = copy.deepcopy(tf)
             self.TE.name = name
 
