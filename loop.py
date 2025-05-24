@@ -479,7 +479,8 @@ class LOOP:
             ]),
         }
 
-        with plt.rc_context(default_rc):
+        with plt.rc_context(default_rc), warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
             if ax is None:
                 fig, ax = plt.subplots(figsize=figsize)
             else:
