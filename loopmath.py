@@ -7,7 +7,7 @@ def loop_crossover(loop1, loop2, frfr):
     """
     Find the frequency at which the open-loop gain of two control loops crosses over.
 
-    This function computes the magnitude of the open-loop transfer functions for two control
+    This function computes the magnitude of the open-loop gain for two control
     loops (`loop1` and `loop2`) over a frequency grid and identifies the first frequency at
     which their magnitudes intersect (i.e., cross each other). This is useful in control
     systems to detect dominance crossover points between nested or competing loops.
@@ -36,8 +36,8 @@ def loop_crossover(loop1, loop2, frfr):
     - This function is useful in tuning multi-loop control systems to identify the frequency
       at which control authority shifts between loops.
     """
-    Gf1 = np.abs(loop1.Gf(f=frfr)) # Loop 1 open-loop transfer function magnitude
-    Gf2 = np.abs(loop2.Gf(f=frfr)) # Loop 2 open-loop transfer function magnitude
+    Gf1 = np.abs(loop1.Gf(f=frfr)) # Loop 1 open-loop gain
+    Gf2 = np.abs(loop2.Gf(f=frfr)) # Loop 2 open-loop gain
     diff = np.array(Gf1-Gf2)
     signs = np.sign(diff)
     signs[signs == 0] = 1  # Replace zeros with 1 to avoid sign change detection issues

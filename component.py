@@ -115,7 +115,7 @@ class Component:
             New component representing the parallel connection.
         """
         new_TF = control.parallel(self.TE, other.TE)
-        new = Component(self.name+other.name, sps=self.sps, tf=new_TF, unit=self.unit)
+        new = Component(self.name+'+'+other.name, sps=self.sps, tf=new_TF, unit=self.unit)
         new.TF = partial(add_transfer_function, tf1=self.TF, tf2=other.TF)
 
         return new
@@ -135,7 +135,7 @@ class Component:
             New component representing the series connection.
         """
         new_unit = self.unit * other.unit
-        new_name = self.name + other.name
+        new_name = self.name + '*' + other.name
 
         new_TF = control.series(self.TE, other.TE)
         new_TF.name = new_name
