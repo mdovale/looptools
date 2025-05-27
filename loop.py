@@ -242,131 +242,93 @@ class LOOP:
         self.Hf = partial(self.tf_series, mode="H")
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
-    
-    def block_diagram(self, filename='loop_diagram', format='svg', transfer_functions=True):
+
+    def block_diagram(self, filename='loop_diagram.tex', transfer_functions=True):
         """
-        Generate a two-row rectangular block diagram with sum→component→sum flow.
+        Generate a rectangular-loop TikZ block diagram of the LOOP structure.
+
+        Components are laid out in a rectangular loop:
+        top row flows left to right, then turns downward;
+        bottom row flows right to left, then upward to close the loop.
 
         Parameters
         ----------
         filename : str
-            Output filename prefix (without extension).
-        format : str
-            Output format, e.g., 'svg', 'pdf'.
+            Output LaTeX filename.
         transfer_functions : bool
-            If True, shows component TE in each box.
+            If True, show transfer function inside component boxes.
 
         Returns
         -------
-        graphviz.Digraph
-            The rendered diagram object.
+        tikz.Picture
+            The rendered TikZ picture object.
         """
-        import graphviz
+        import tikz
         import html
-
-        dot = graphviz.Digraph(format=format)
-        dot.attr(ranksep='1.5', nodesep='0.75')
-        dot.graph_attr['splines'] = 'ortho'
-
-        def tf_to_html_label(tf):
-            try:
-                num = tf.num[0][0]
-                den = tf.den[0][0]
-                if isinstance(num[0], (list, tuple)):
-                    num = [c[0] for c in num]
-                if isinstance(den[0], (list, tuple)):
-                    den = [c[0] for c in den]
-            except (TypeError, IndexError):
-                raise ValueError("Expected tf.num[0][0] and tf.den[0][0] as flat lists")
-
-            def poly_to_str(coeffs):
-                terms = []
-                for i, c in enumerate(reversed(coeffs)):
-                    if abs(c) < 1e-12:
-                        continue
-                    power = f"s^{i}" if i > 1 else "s" if i == 1 else ""
-                    terms.append(f"{c:.2g}{power}")
-                return " + ".join(terms) if terms else "0"
-
-            num_str = poly_to_str(num)
-            den_str = poly_to_str(den)
-
-            return f"""
-                <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
-                <TR><TD>{num_str}</TD></TR>
-                <TR><TD>────</TD></TR>
-                <TR><TD>{den_str}</TD></TR>
-                </TABLE>
-            """
 
         names = list(self.components_dict.keys())
         if not names:
-            return dot
+            print("[block_diagram] No components found.")
+            return None
 
         n = len(names)
         top_names = names[: (n + 1) // 2]
         bottom_names = names[(n + 1) // 2:]
 
-        # Create all nodes
-        for name in names:
-            comp = self.components_dict[name]
-            label_clean = html.escape(name)
+        pic = tikz.Picture()
+        pic.add_preamble(r"""
+\usetikzlibrary{arrows.meta,positioning}
+\tikzset{
+block/.style={draw, fill=white, rectangle, minimum height=3em, minimum width=6em},
+sum/.style={draw, fill=white, circle},
+arrow/.style={->, >=latex}
+}
+        """)
+        code = []
+        top_nodes = []
 
-            dot.node(f"sum_{name}", label="+", shape="circle", width="0.3", height="0.3", fixedsize="true")
+        # --- Top row ---
+        for idx, name in enumerate(top_names):
+            label = html.escape(name)
+            pos = "" if idx == 0 else f"right=of {top_nodes[-1]}"
+            code.append(f"\\node [sum] (sum_{name}) [{pos}] {{+}};")
+            code.append(f"\\node [block, right=of sum_{name}] ({name}) {{{label}}};")
+            top_nodes.append(name)
 
-            if transfer_functions:
-                tf_html = tf_to_html_label(comp.TE)
-                label = f"""<
-                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4">
-                    <TR><TD><B>{label_clean}</B></TD></TR>
-                    <TR><TD>{tf_html}</TD></TR>
-                    </TABLE>
-                >"""
-                dot.node(name, label=label, shape="box")
+        # --- Bottom row (reversed visually) ---
+        for idx, name in enumerate(bottom_names):
+            label = html.escape(name)
+            anchor = top_names[-(idx + 1)] if idx < len(top_names) else top_nodes[-1]
+            code.append(f"\\node [sum, below=2cm of {anchor}] (sum_{name}) {{+}};")
+            code.append(f"\\node [block, left=of sum_{name}] ({name}) {{{label}}};")
+
+        # --- Draw arrows through loop ---
+        flow = top_names + bottom_names
+        print(flow)
+        for i, name in enumerate(flow):
+            code.append(f"\\draw [arrow] (sum_{name}) -- ({name});")
+            next_idx = (i + 1) % len(flow)
+            next_name = flow[next_idx]
+            from_node = name
+            to_node = f"sum_{next_name}"
+
+            if i == len(top_names) - 1:  # Top-to-bottom corner
+                code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
+            elif next_idx == 0:  # Bottom-to-top loop closure
+                code.append(f"\\draw [arrow] ({from_node}) -- ({to_node}) node[midway, left]{{{self.name}}};")
+            elif i < len(top_names):
+                code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
             else:
-                dot.node(name, label=label_clean, shape="box")
+                code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
 
-        # === Top row layout ===
-        top_row = []
-        for name in top_names:
-            top_row += [f"sum_{name}", name]
+        raw = tikz.Raw('\n'.join(code))
+        pic._append(raw)
 
-        with dot.subgraph() as s:
-            s.attr(rank='same')
-            for node in top_row:
-                s.node(node)
-        for i in range(len(top_row) - 1):
-            dot.edge(top_row[i], top_row[i + 1], style="invis")
+        with open(filename, 'w') as f:
+            f.write(pic.document_code())
 
-        # === Bottom row layout (right → left, interleaved and aligned) ===
-        bottom_row_pairs = [[f"sum_{name}", name] for name in bottom_names]
-        bottom_row = [node for pair in reversed(bottom_row_pairs) for node in pair]
-
-        with dot.subgraph() as s:
-            s.attr(rank='same')
-            for node in bottom_row:
-                s.node(node)
-
-        # Enforce layout: invisible horizontal links between bottom row nodes
-        for i in range(len(bottom_row) - 1):
-            dot.edge(bottom_row[i], bottom_row[i + 1], style="invis", weight="100")
-
-        # Anchor bottom row visually under the last top-row element
-        if top_names and bottom_names:
-            dot.edge(f"sum_{top_names[-1]}", bottom_row[0], style="invis")
-
-        # === Main loop: sum_X → X → sum_Y, excluding final wrap
-        for i, name in enumerate(names):
-            next_name = names[(i + 1) % len(names)]
-            dot.edge(f"sum_{name}", name)
-            if i < len(names) - 1:
-                dot.edge(name, f"sum_{next_name}")
-
-        # === One feedback edge to close loop ===
-        dot.edge(names[-1], f"sum_{names[0]}", style="dashed", xlabel=self.name)
-
-        dot.render(filename, view=False)
-        return dot
+        self.pic = pic
+        return pic
 
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
