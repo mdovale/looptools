@@ -52,6 +52,9 @@ controller = PIControllerComponent("Controller", sps, Kp=3, Ki=-3)
 # Build loop
 loop = LOOP(sps, [plant, sensor, controller], name='My Loop')
 
+# Visualize
+loop.block_diagram(dpi=200)
+
 # Analyze
 fig, ax = loop.bode_plot(frfr)
 plt.show()
