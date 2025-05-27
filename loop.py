@@ -304,7 +304,8 @@ arrow/.style={->, >=latex}
 
         # --- Draw arrows through loop ---
         flow = top_names + bottom_names
-        print(flow)
+        # Debugging:
+        # print(flow)
         for i, name in enumerate(flow):
             code.append(f"\\draw [arrow] (sum_{name}) -- ({name});")
             next_idx = (i + 1) % len(flow)
@@ -324,8 +325,9 @@ arrow/.style={->, >=latex}
         raw = tikz.Raw('\n'.join(code))
         pic._append(raw)
 
-        with open(filename, 'w') as f:
-            f.write(pic.document_code())
+        # Debugging:
+        # with open(filename, 'w') as f:
+        #     f.write(pic.document_code())
 
         self.pic = pic
         return pic
