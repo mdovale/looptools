@@ -287,25 +287,47 @@ arrow/.style={->, >=latex}
         code = []
         top_nodes = []
 
+        def tex_fraction(tf):
+            def poly_to_tex(p):
+                terms = [
+                    f"{c:.3g}s^{i}" if i > 1 else
+                    f"{c:.3g}s" if i == 1 else
+                    f"{c:.3g}"
+                    for i, c in enumerate(reversed(p)) if abs(c) > 1e-12
+                ]
+                return " + ".join(terms) if terms else "0"
+
+            try:
+                num = tf.num[0][0]
+                den = tf.den[0][0]
+            except Exception:
+                return None
+
+            return f"$\\frac{{{poly_to_tex(num)}}}{{{poly_to_tex(den)}}}$"
+
         # --- Top row ---
         for idx, name in enumerate(top_names):
             label = html.escape(name)
+            tf_obj = getattr(self.components_dict[name], 'TE', None)
+            tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
+            block_label = f"{label}\\\{tf_latex}" if tf_latex else label
             pos = "" if idx == 0 else f"right=of {top_nodes[-1]}"
             code.append(f"\\node [sum] (sum_{name}) [{pos}] {{+}};")
-            code.append(f"\\node [block, right=of sum_{name}] ({name}) {{{label}}};")
+            code.append(f"\\node [block, right=of sum_{name}, align=center] ({name}) {{{block_label}}};")
             top_nodes.append(name)
 
         # --- Bottom row (reversed visually) ---
         for idx, name in enumerate(bottom_names):
             label = html.escape(name)
+            tf_obj = getattr(self.components_dict[name], 'TE', None)
+            tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
+            block_label = f"{label}\\\{tf_latex}" if tf_latex else label
             anchor = top_names[-(idx + 1)] if idx < len(top_names) else top_nodes[-1]
             code.append(f"\\node [sum, below=2cm of {anchor}] (sum_{name}) {{+}};")
-            code.append(f"\\node [block, left=of sum_{name}] ({name}) {{{label}}};")
+            code.append(f"\\node [block, left=of sum_{name}, align=center] ({name}) {{{block_label}}};")
 
         # --- Draw arrows through loop ---
         flow = top_names + bottom_names
-        # Debugging:
-        # print(flow)
         for i, name in enumerate(flow):
             code.append(f"\\draw [arrow] (sum_{name}) -- ({name});")
             next_idx = (i + 1) % len(flow)
@@ -317,21 +339,17 @@ arrow/.style={->, >=latex}
                 code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
             elif next_idx == 0:  # Bottom-to-top loop closure
                 code.append(f"\\draw [arrow] ({from_node}) -- ({to_node}) node[midway, left]{{{self.name}}};")
-            elif i < len(top_names):
-                code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
             else:
                 code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
 
         raw = tikz.Raw('\n'.join(code))
         pic._append(raw)
 
-        # Debugging:
-        # with open(filename, 'w') as f:
-        #     f.write(pic.document_code())
+        with open(filename, 'w') as f:
+            f.write(pic.document_code())
 
         self.pic = pic
         return pic
-
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
