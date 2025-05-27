@@ -5,6 +5,7 @@ import itertools
 import warnings
 import base64
 import html
+import tikz
 import fitz
 from functools import partial
 import IPython
@@ -247,18 +248,22 @@ class LOOP:
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
 
-    def block_diagram(self, dpi=150, filename='loop_diagram.tex', transfer_functions=True):
+    def block_diagram(self, dpi=150, filename=None, transfer_functions=True):
         """
-        Generate a rectangular-loop TikZ block diagram of the LOOP structure.
+        Generate a TikZ block diagram of the LOOP structure.
 
         Components are laid out in a rectangular loop:
         top row flows left to right, then turns downward;
         bottom row flows right to left, then upward to close the loop.
 
+        Special case: if the loop has only one component, a minimal vertical layout is used.
+
         Parameters
         ----------
+        dpi : int
+            Dots per inch for the rendered PNG image.
         filename : str
-            Output LaTeX filename.
+            If given, saves the LaTeX code to this file.
         transfer_functions : bool
             If True, show transfer function inside component boxes.
 
@@ -267,29 +272,14 @@ class LOOP:
         tikz.Picture
             The rendered TikZ picture object.
         """
-        import tikz
         import html
+        import base64
+        import fitz
+        import IPython.display
+        import tikz
 
-        names = list(self.components_dict.keys())
-        if not names:
-            print("[block_diagram] No components found.")
-            return None
-
-        n = len(names)
-        top_names = names[: (n + 1) // 2]
-        bottom_names = names[(n + 1) // 2:]
-
-        pic = tikz.Picture()
-        pic.add_preamble(r"""
-\usetikzlibrary{arrows.meta,positioning}
-\tikzset{
-block/.style={draw, fill=white, rectangle, minimum height=3em, minimum width=6em},
-sum/.style={draw, fill=white, circle},
-arrow/.style={->, >=latex}
-}
-        """)
-        code = []
-        top_nodes = []
+        def tikz_safe(name):
+            return name.replace(" ", "").replace("-", "")
 
         def tex_fraction(tf):
             def poly_to_tex(p):
@@ -309,75 +299,126 @@ arrow/.style={->, >=latex}
 
             return f"$\\frac{{{poly_to_tex(num)}}}{{{poly_to_tex(den)}}}$"
 
-        # --- Top row ---
-        for idx, name in enumerate(top_names):
+        def render_and_display(pic):
+            pic._update()
+            self.pic = pic
+            self.block_diagram_code = pic.document_code()
+
+            if filename is not None:
+                with open(filename, 'w') as f:
+                    f.write(self.block_diagram_code)
+
+            zoom = dpi / 72
+            doc = fitz.open(pic.temp_pdf)
+            page = doc.load_page(0)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            pngdata = pix.tobytes("png")
+            png_base64 = base64.b64encode(pngdata).decode('ascii')
+            demo_template = '\n'.join([
+                '<div style="background-color:#e0e0e0;padding:10px;">',
+                '  <img src="data:image/png;base64,{0}">',
+                '</div>'
+            ])
+            IPython.display.display(IPython.display.HTML(demo_template.format(png_base64)))
+
+        def make_block_label(name, tf_obj):
             label = html.escape(name)
-            tf_obj = getattr(self.components_dict[name], 'TE', None)
             tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
-            block_label = f"{label}\\\\{tf_latex}" if tf_latex else label
+            return f"{label}\\\\{tf_latex}" if tf_latex else label
+
+        names = list(self.components_dict.keys())
+        if not names:
+            print("[block_diagram] No components found.")
+            return None
+
+        pic = tikz.Picture()
+        preamble = r"""
+\usetikzlibrary{arrows.meta,positioning,calc}
+\tikzset{
+block/.style={draw, fill=white, rectangle, minimum height=3em, minimum width=6em},
+sum/.style={draw, fill=white, circle},
+arrow/.style={->, >=latex}
+    }
+        """
+        pic.add_preamble(preamble)
+        code = []
+
+        # --- Special case: single-component loop ---
+        if len(names) == 1:
+            raw_name = names[0]
+            safe_name = tikz_safe(raw_name)
+            label = make_block_label(raw_name, getattr(self.components_dict[raw_name], 'TE', None))
+
+            code.append(f"\\node [block, align=center] ({safe_name}) {{{label}}};")
+            code.append(f"\\node [sum, below=1cm of {safe_name}] (sum{safe_name}) {{+}};")
+            code += [
+                f"\\coordinate (fwd1) at ($({safe_name}.east) + (5mm, 0)$);",
+                f"\\coordinate (fwd2) at ($(fwd1) + (0, -1mm)$);",
+                f"\\draw [arrow] ({safe_name}.east) -- (fwd1) -- (fwd2) |- (sum{safe_name}.east);",
+                f"\\coordinate (back1) at ($({safe_name}.west) + (-5mm, 0)$);",
+                f"\\coordinate (back2) at ($(back1) + (0, -1mm)$);",
+                f"\\draw [<-, >=latex] ({safe_name}.west) -| (back1) -- (back2) |- (sum{safe_name}.west) node[midway, left]{{{self.name}}};"
+            ]
+            pic._append(tikz.Raw('\n'.join(code)))
+            render_and_display(pic)
+            return
+
+        # --- General case: multiple components ---
+        n = len(names)
+        top_names = names[: (n + 1) // 2]
+        bottom_names = names[(n + 1) // 2:]
+
+        top_nodes, bottom_nodes = [], []
+
+        for idx, raw_name in enumerate(top_names):
+            safe_name = tikz_safe(raw_name)
+            label = make_block_label(raw_name, getattr(self.components_dict[raw_name], 'TE', None))
             pos = "" if idx == 0 else f"right=of {top_nodes[-1]}"
-            code.append(f"\\node [sum] (sum_{name}) [{pos}] {{+}};")
-            code.append(f"\\node [block, right=of sum_{name}, align=center] ({name}) {{{block_label}}};")
-            top_nodes.append(name)
+            code.append(f"\\node [sum] (sum{safe_name}) [{pos}] {{+}};")
+            code.append(f"\\node [block, right=of sum{safe_name}, align=center] ({safe_name}) {{{label}}};")
+            top_nodes.append(safe_name)
 
-        # --- Bottom row (reversed visually) ---
-        bottom_nodes = []
-        for idx, name in enumerate(bottom_names):
-            label = html.escape(name)
-            tf_obj = getattr(self.components_dict[name], 'TE', None)
-            tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
-            block_label = f"{label}\\\\{tf_latex}" if tf_latex else label
-
+        for idx, raw_name in enumerate(bottom_names):
+            safe_name = tikz_safe(raw_name)
+            label = make_block_label(raw_name, getattr(self.components_dict[raw_name], 'TE', None))
             if idx == 0:
-                # First node: place below the last top node
                 anchor = top_nodes[-1]
-                code.append(f"\\node [sum, below=2cm of {anchor}] (sum_{name}) {{+}};")
-                code.append(f"\\node [block, left=of sum_{name}, align=center] ({name}) {{{block_label}}};")
+                code.append(f"\\node [sum, below=2cm of {anchor}] (sum{safe_name}) {{+}};")
+                code.append(f"\\node [block, left=of sum{safe_name}, align=center] ({safe_name}) {{{label}}};")
             else:
-                # All others: chain left of the previous block
-                prev_name = bottom_names[idx - 1]
-                code.append(f"\\node [sum, left=of {prev_name}] (sum_{name}) {{+}};")
-                code.append(f"\\node [block, left=of sum_{name}, align=center] ({name}) {{{block_label}}};")
+                prev_safe = tikz_safe(bottom_names[idx - 1])
+                code.append(f"\\node [sum, left=of {prev_safe}] (sum{safe_name}) {{+}};")
+                code.append(f"\\node [block, left=of sum{safe_name}, align=center] ({safe_name}) {{{label}}};")
+            bottom_nodes.append(safe_name)
 
-            bottom_nodes.append(name)
-
-        # --- Draw arrows through loop ---
-        flow = top_names + bottom_names
+        flow = top_nodes + bottom_nodes
         for i, name in enumerate(flow):
-            code.append(f"\\draw [arrow] (sum_{name}) -- ({name});")
+            code.append(f"\\draw [arrow] (sum{name}) -- ({name});")
             next_idx = (i + 1) % len(flow)
             next_name = flow[next_idx]
             from_node = name
-            to_node = f"sum_{next_name}"
+            to_node = f"sum{next_name}"
 
-            if i == len(top_names) - 1:  # Top-to-bottom corner
+            if i == len(top_nodes) - 1:
                 code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
-            elif next_idx == 0:  # Bottom-to-top loop closure
-                code.append(f"\\draw [arrow] ({from_node}) -- ({to_node}) node[midway, left]{{{self.name}}};")
+            elif next_idx == 0:
+                code.append(f"""
+% Always extend loop to the left of both nodes
+\\path let
+\\p1 = ({to_node}.west),
+\\p2 = ({from_node}.west),
+\\n1 = {{min(\\x1,\\x2)-5mm}},
+\\n2 = {{\\y2}}
+in
+coordinate (loop_corner) at (\\n1,\\n2);
+
+\\draw [-] ({from_node}.west) -- (loop_corner);
+\\draw [arrow] (loop_corner) |- ({to_node}.west) node[midway, left]{{{self.name}}};""")
             else:
                 code.append(f"\\draw [arrow] ({from_node}) -- ({to_node});")
 
-        raw = tikz.Raw('\n'.join(code))
-        pic._append(raw)
-        pic._update()  # ensures the PDF file exists at pic.temp_pdf
-        self.pic = pic
-        self.block_diagram_code = pic.document_code()
-
-        with open(filename, 'w') as f:
-            f.write(self.block_diagram_code)
-
-        zoom = dpi / 72
-        doc = fitz.open(pic.temp_pdf)
-        page = doc.load_page(0)
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-        pngdata = pix.tobytes("png")
-        png_base64 = base64.b64encode(pngdata).decode('ascii')
-        demo_template = '\n'.join([
-            '<div style="background-color:#e0e0e0;padding:10px;">',
-            '  <img src="data:image/png;base64,{0}">',
-            '</div>'
-        ])
-        IPython.display.display(IPython.display.HTML(demo_template.format(png_base64)))
+        pic._append(tikz.Raw('\n'.join(code)))
+        render_and_display(pic)
 
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
