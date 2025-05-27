@@ -1,12 +1,16 @@
-import numpy as np
-import control
-import copy
-from functools import partial
-import scipy.signal as sig
-import matplotlib.pyplot as plt
 from looptools.loopmath import *
 from looptools import dimension as dim
 from looptools.plots import default_rc
+
+import re
+import copy
+import numbers
+import control
+import numpy as np
+from sympy import symbols, Poly, sympify
+from functools import partial
+import scipy.signal as sig
+import matplotlib.pyplot as plt
 import logging
 logger = logging.getLogger(__name__)
 
@@ -28,7 +32,7 @@ class Component:
             Sample rate of the control loop (Hz).
         tf : str | float | control.TransferFunction | tuple
             Transfer function specification. Can be:
-            - A string using 's' (e.g. '1 / (s^2 + 10*s + 20)')
+            - A string using any variable (e.g. '(s + 1)/(s^2 + 0.1s + 10)')
             - A scalar (interpreted as gain)
             - A control.TransferFunction object
             - A (nume, deno) tuple/list
@@ -50,54 +54,70 @@ class Component:
         self.sps = sps
         self.unit = unit
 
-        from sympy import symbols, Poly, sympify
-        import numbers
-
-        s = symbols('s')
-
-        # Handle various tf formats
         if tf is None:
             self.nume = nume
             self.deno = deno
-            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
             self.TE.name = name
 
         elif isinstance(tf, str):
-            expr = sympify(tf.replace('^', '**'))
-            nume_expr, deno_expr = expr.as_numer_denom()
-            nume_poly = Poly(nume_expr, s)
-            deno_poly = Poly(deno_expr, s)
-            self.nume = np.array(nume_poly.all_coeffs(), dtype=float)
-            self.deno = np.array(deno_poly.all_coeffs(), dtype=float)
-            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
-            self.TE.name = name
+            # Insert missing multiplication and clean syntax
+            tf_clean = tf.replace('^', '**')
+            tf_clean = re.sub(r'(?<=\d)(?=[a-zA-Z])', '*', tf_clean)  # 2s -> 2*s
+            tf_clean = re.sub(r'(?<=[a-zA-Z])(?=\d)', '*', tf_clean)  # s2 -> s*2
+            tf_clean = re.sub(r'(?<=[a-zA-Z])(?=[a-zA-Z])', '*', tf_clean)  # sA -> s*A
+
+            try:
+                expr = sympify(tf_clean)
+            except Exception as e:
+                raise ValueError(f"Failed to parse TF expression '{tf}': {e}")
+
+            vars = list(expr.free_symbols)
+
+            if not vars:
+                # constant gain
+                value = float(expr)
+                self.nume = np.array([value])
+                self.deno = np.array([1.0])
+                self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+                self.TE.name = name
+
+            elif len(vars) == 1:
+                var = vars[0]
+                nume_expr, deno_expr = expr.as_numer_denom()
+                nume_poly = Poly(nume_expr, var)
+                deno_poly = Poly(deno_expr, var)
+                self.nume = np.array(nume_poly.all_coeffs(), dtype=float)
+                self.deno = np.array(deno_poly.all_coeffs(), dtype=float)
+                self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+                self.TE.name = name
+            else:
+                raise ValueError(f"Expected one symbolic variable in TF expression, found: {vars}")
 
         elif isinstance(tf, numbers.Number):
             self.nume = np.array([float(tf)])
             self.deno = np.array([1.0])
-            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
             self.TE.name = name
 
         elif isinstance(tf, control.TransferFunction):
             (nume, deno) = control.tfdata(tf)
-            deno = np.array(deno)[0,0,:]
-            nume = np.array(nume)[0,0,:]
-            deno = np.around(deno, 16)
-            nume = np.around(nume, 16)
-            self.nume, self.deno = nume, deno
+            deno = np.array(deno)[0, 0, :]
+            nume = np.array(nume)[0, 0, :]
+            self.nume = np.around(nume, 16)
+            self.deno = np.around(deno, 16)
             self.TE = copy.deepcopy(tf)
             self.TE.name = name
 
         elif isinstance(tf, (tuple, list)) and len(tf) == 2:
             self.nume = np.array(tf[0], dtype=float)
             self.deno = np.array(tf[1], dtype=float)
-            self.TE = control.tf(self.nume, self.deno, 1/self.sps, name=name)
+            self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
             self.TE.name = name
 
         else:
             raise ValueError(f"Unsupported tf format: {type(tf)}")
 
-        # : transfer function
         self.update()
 
     def __add__(self, other):

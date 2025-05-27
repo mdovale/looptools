@@ -261,14 +261,14 @@ class LaserLockPZT(LOOP):
             self.add_component(MultiplierComponent("Kdac", self.sps, Kdac, Dimension(dimensionless=True)))
 
         # : PZT analog low-pass filter
-        if "p_Fcond" not in off:
-            self.add_component(ActuatorComponent("p_Fcond", self.sps, Kc_pzt, Fc_pzt, Dimension(dimensionless=True)))
+        if "pztFcond" not in off:
+            self.add_component(ActuatorComponent("pztFcond", self.sps, Kc_pzt, Fc_pzt, Dimension(dimensionless=True)))
             if OPpzt is not None:
-                self.add_component(ActuatorComponent("p_Fop", self.sps, 1.0, OpAmp_dict[OPpzt]["GBP"]/Kc_pzt), Dimension(dimensionless=True))
+                self.add_component(ActuatorComponent("pztFop", self.sps, 1.0, OpAmp_dict[OPpzt]["GBP"]/Kc_pzt), Dimension(dimensionless=True))
 
         # : Laser PZT actuator efficiency [Hz/V]
-        if "p_Fplant" not in off:
-            self.add_component(ActuatorComponent("p_Fplant", self.sps, Ka_pzt, Fa_pzt, Dimension(["Hz"], ["V"])))
+        if "pztFplant" not in off:
+            self.add_component(ActuatorComponent("Fplant", self.sps, Ka_pzt, Fa_pzt, Dimension(["Hz"], ["V"])))
 
         # : implicit accumulator [rad/Hz]
         if "Fnu2phi" not in off:
@@ -407,14 +407,14 @@ class LaserLockTemp(LOOP):
             self.add_component(MultiplierComponent("Kdac", self.sps, Kdac, Dimension(dimensionless=True)))
 
         # : Temp analog low-pass filter
-        if "t_Fcond" not in off:
-            self.add_component(ActuatorComponent("t_Fcond", self.sps, Kc_temp, Fc_temp, Dimension(dimensionless=True)))
+        if "tempFcond" not in off:
+            self.add_component(ActuatorComponent("tempFcond", self.sps, Kc_temp, Fc_temp, Dimension(dimensionless=True)))
             if OPtemp is not None:
-                self.add_component(ActuatorComponent("t_Fop", self.sps, 1.0, OpAmp_dict[OPtemp]["GBP"]/Kc_temp), Dimension(dimensionless=True))                    
+                self.add_component(ActuatorComponent("tempFop", self.sps, 1.0, OpAmp_dict[OPtemp]["GBP"]/Kc_temp), Dimension(dimensionless=True))                    
 
         # : Laser temperature actuator efficiency [Hz/V]
-        if "t_Fplant" not in off:
-            self.add_component(ActuatorComponent("t_Fplant", self.sps, Ka_temp, Fa_temp, unit=Dimension(["Hz"], ["V"])))
+        if "tempFplant" not in off:
+            self.add_component(ActuatorComponent("tempFplant", self.sps, Ka_temp, Fa_temp, unit=Dimension(["Hz"], ["V"])))
 
         # : implicit accumulator [rad/Hz]
         if "Fnu2phi" not in off:

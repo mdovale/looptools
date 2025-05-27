@@ -317,14 +317,25 @@ arrow/.style={->, >=latex}
             top_nodes.append(name)
 
         # --- Bottom row (reversed visually) ---
+        bottom_nodes = []
         for idx, name in enumerate(bottom_names):
             label = html.escape(name)
             tf_obj = getattr(self.components_dict[name], 'TE', None)
             tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
             block_label = f"{label}\\\{tf_latex}" if tf_latex else label
-            anchor = top_names[-(idx + 1)] if idx < len(top_names) else top_nodes[-1]
-            code.append(f"\\node [sum, below=2cm of {anchor}] (sum_{name}) {{+}};")
-            code.append(f"\\node [block, left=of sum_{name}, align=center] ({name}) {{{block_label}}};")
+
+            if idx == 0:
+                # First node: place below the last top node
+                anchor = top_nodes[-1]
+                code.append(f"\\node [sum, below=2cm of {anchor}] (sum_{name}) {{+}};")
+                code.append(f"\\node [block, left=of sum_{name}, align=center] ({name}) {{{block_label}}};")
+            else:
+                # All others: chain left of the previous block
+                prev_name = bottom_names[idx - 1]
+                code.append(f"\\node [sum, left=of {prev_name}] (sum_{name}) {{+}};")
+                code.append(f"\\node [block, left=of sum_{name}, align=center] ({name}) {{{block_label}}};")
+
+            bottom_nodes.append(name)
 
         # --- Draw arrows through loop ---
         flow = top_names + bottom_names
@@ -350,6 +361,7 @@ arrow/.style={->, >=latex}
 
         self.pic = pic
         return pic
+    
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
