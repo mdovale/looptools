@@ -245,42 +245,46 @@ class LOOP:
     
     def block_diagram(self, filename='loop_diagram', format='svg', transfer_functions=True):
         """
-        Generate a Graphviz block diagram of the LOOP structure.
-
-        Each Component is shown as a node with its name and symbolic transfer function.
-        Connections are rendered in the order defined by the LOOP's topology.
+        Generate a two-row rectangular block diagram with sum→component→sum flow.
 
         Parameters
         ----------
-        filename : str, optional
-            Base filename for output file. Default is 'loop_diagram'.
-        format : str, optional
-            Format for output file (e.g. 'svg', 'pdf'). Default is 'svg'.
-        transfer_functions : bool, optional
-            If True, display the transfer function within the node block.
+        filename : str
+            Output filename prefix (without extension).
+        format : str
+            Output format, e.g., 'svg', 'pdf'.
+        transfer_functions : bool
+            If True, shows component TE in each box.
 
         Returns
         -------
         graphviz.Digraph
-            The graph object representing the block diagram.
+            The rendered diagram object.
         """
         import graphviz
+        import html
+
         dot = graphviz.Digraph(format=format)
-        if len(self.components_dict) > 4:
-            dot.attr(rankdir='TB', ranksep='0.5', nodesep='0.5')
-        else:
-            dot.attr(rankdir='LR')
+        dot.attr(ranksep='1.5', nodesep='0.75')
+        dot.graph_attr['splines'] = 'ortho'
 
         def tf_to_html_label(tf):
-            """Convert TransferFunction to Graphviz-safe HTML-like label."""
-            num, den = tf.num[0][0], tf.den[0][0]  # assuming SISO
+            try:
+                num = tf.num[0][0]
+                den = tf.den[0][0]
+                if isinstance(num[0], (list, tuple)):
+                    num = [c[0] for c in num]
+                if isinstance(den[0], (list, tuple)):
+                    den = [c[0] for c in den]
+            except (TypeError, IndexError):
+                raise ValueError("Expected tf.num[0][0] and tf.den[0][0] as flat lists")
 
             def poly_to_str(coeffs):
                 terms = []
                 for i, c in enumerate(reversed(coeffs)):
                     if abs(c) < 1e-12:
                         continue
-                    power = f"f^{i}" if i > 1 else "f" if i == 1 else ""
+                    power = f"s^{i}" if i > 1 else "s" if i == 1 else ""
                     terms.append(f"{c:.2g}{power}")
                 return " + ".join(terms) if terms else "0"
 
@@ -295,31 +299,71 @@ class LOOP:
                 </TABLE>
             """
 
-        # Create a node for each Component
-        for name, comp in self.components_dict.items():
+        names = list(self.components_dict.keys())
+        if not names:
+            return dot
+
+        n = len(names)
+        top_names = names[: (n + 1) // 2]
+        bottom_names = names[(n + 1) // 2:]
+
+        # Create all nodes
+        for name in names:
+            comp = self.components_dict[name]
+            label_clean = html.escape(name)
+
+            dot.node(f"sum_{name}", label="+", shape="circle", width="0.3", height="0.3", fixedsize="true")
+
             if transfer_functions:
                 tf_html = tf_to_html_label(comp.TE)
                 label = f"""<
                     <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4">
-                    <TR><TD><B>{name}</B></TD></TR>
+                    <TR><TD><B>{label_clean}</B></TD></TR>
                     <TR><TD>{tf_html}</TD></TR>
                     </TABLE>
                 >"""
+                dot.node(name, label=label, shape="box")
             else:
-                label = name
-            dot.node(name, label=label, shape="box")
+                dot.node(name, label=label_clean, shape="box")
 
-        # Add edges
-        names = list(self.components_dict.keys())
-        if len(names) > 1:
-            for i in range(len(names) - 1):
-                dot.edge(names[i], names[i + 1])
-            # Close the loop: last → first
-            dot.edge(names[-1], names[0], style='dashed', label=self.name)
-        elif len(names) == 1:
-            # Single-component loopback from East to West
-            name = names[0]
-            dot.edge(f'{name}:e', f'{name}:w', style='dashed', label=self.name)
+        # === Top row layout ===
+        top_row = []
+        for name in top_names:
+            top_row += [f"sum_{name}", name]
+
+        with dot.subgraph() as s:
+            s.attr(rank='same')
+            for node in top_row:
+                s.node(node)
+        for i in range(len(top_row) - 1):
+            dot.edge(top_row[i], top_row[i + 1], style="invis")
+
+        # === Bottom row layout (right → left, interleaved and aligned) ===
+        bottom_row_pairs = [[f"sum_{name}", name] for name in bottom_names]
+        bottom_row = [node for pair in reversed(bottom_row_pairs) for node in pair]
+
+        with dot.subgraph() as s:
+            s.attr(rank='same')
+            for node in bottom_row:
+                s.node(node)
+
+        # Enforce layout: invisible horizontal links between bottom row nodes
+        for i in range(len(bottom_row) - 1):
+            dot.edge(bottom_row[i], bottom_row[i + 1], style="invis", weight="100")
+
+        # Anchor bottom row visually under the last top-row element
+        if top_names and bottom_names:
+            dot.edge(f"sum_{top_names[-1]}", bottom_row[0], style="invis")
+
+        # === Main loop: sum_X → X → sum_Y, excluding final wrap
+        for i, name in enumerate(names):
+            next_name = names[(i + 1) % len(names)]
+            dot.edge(f"sum_{name}", name)
+            if i < len(names) - 1:
+                dot.edge(name, f"sum_{next_name}")
+
+        # === One feedback edge to close loop ===
+        dot.edge(names[-1], f"sum_{names[0]}", style="dashed", xlabel=self.name)
 
         dot.render(filename, view=False)
         return dot
