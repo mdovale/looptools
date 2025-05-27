@@ -3,7 +3,11 @@ import control
 import copy
 import itertools
 import warnings
+import base64
+import html
+import fitz
 from functools import partial
+import IPython
 from looptools.component import Component
 from looptools.dimension import Dimension
 from looptools.plots import default_rc
@@ -243,7 +247,7 @@ class LOOP:
         self.Ef = partial(self.tf_series, mode="E")
         return self.Gf, self.Hf, self.Ef
 
-    def block_diagram(self, filename='loop_diagram.tex', transfer_functions=True):
+    def block_diagram(self, dpi=150, filename='loop_diagram.tex', transfer_functions=True):
         """
         Generate a rectangular-loop TikZ block diagram of the LOOP structure.
 
@@ -310,7 +314,7 @@ arrow/.style={->, >=latex}
             label = html.escape(name)
             tf_obj = getattr(self.components_dict[name], 'TE', None)
             tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
-            block_label = f"{label}\\\{tf_latex}" if tf_latex else label
+            block_label = f"{label}\\\\{tf_latex}" if tf_latex else label
             pos = "" if idx == 0 else f"right=of {top_nodes[-1]}"
             code.append(f"\\node [sum] (sum_{name}) [{pos}] {{+}};")
             code.append(f"\\node [block, right=of sum_{name}, align=center] ({name}) {{{block_label}}};")
@@ -322,7 +326,7 @@ arrow/.style={->, >=latex}
             label = html.escape(name)
             tf_obj = getattr(self.components_dict[name], 'TE', None)
             tf_latex = tex_fraction(tf_obj) if transfer_functions and tf_obj else None
-            block_label = f"{label}\\\{tf_latex}" if tf_latex else label
+            block_label = f"{label}\\\\{tf_latex}" if tf_latex else label
 
             if idx == 0:
                 # First node: place below the last top node
@@ -355,13 +359,26 @@ arrow/.style={->, >=latex}
 
         raw = tikz.Raw('\n'.join(code))
         pic._append(raw)
+        pic._update()  # ensures the PDF file exists at pic.temp_pdf
+        self.pic = pic
+        self.block_diagram_code = pic.document_code()
 
         with open(filename, 'w') as f:
-            f.write(pic.document_code())
+            f.write(self.block_diagram_code)
 
-        self.pic = pic
-        return pic
-    
+        zoom = dpi / 72
+        doc = fitz.open(pic.temp_pdf)
+        page = doc.load_page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        pngdata = pix.tobytes("png")
+        png_base64 = base64.b64encode(pngdata).decode('ascii')
+        demo_template = '\n'.join([
+            '<div style="background-color:#e0e0e0;padding:10px;">',
+            '  <img src="data:image/png;base64,{0}">',
+            '</div>'
+        ])
+        IPython.display.display(IPython.display.HTML(demo_template.format(png_base64)))
+
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
