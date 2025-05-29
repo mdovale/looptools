@@ -730,7 +730,7 @@ class MokuPIDController(Component):
         Transition frequency below which extrapolation is applied [Hz].
     """
 
-    def __init__(self, name, sps, Kp_dB, Fc_i=None, Fc_ii=None, Fc_d=None, f_trans=0.1):
+    def __init__(self, name, sps, Kp_dB, Fc_i=None, Fc_ii=None, Fc_d=None, f_trans=None):
         self.name = name
         self.sps = sps
         self.f_trans = f_trans
@@ -761,7 +761,6 @@ class MokuPIDController(Component):
         if self._Fc_i is not None:
             self._Ki = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_i, kind='I', structure='add')
             I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=P.unit)
-            I.TF = partial(I.TF, extrapolate=False, f_trans=self.f_trans, power=-1)
             components.append(I)
         else:
             self._Ki = None
@@ -769,7 +768,8 @@ class MokuPIDController(Component):
         if self._Fc_ii is not None and self._Fc_i is not None: # We cannot have double integrator with the first-stage integrator
             self._Kii = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_ii, kind='II', structure='add')
             II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=P.unit)
-            II.TF = partial(II.TF, extrapolate=True, f_trans=self.f_trans, power=-2)
+            if self.f_trans is not None:
+                II.TF = partial(II.TF, extrapolate=True, f_trans=self.f_trans, power=-2)
             components[-1] += II
         else:
             self._Kii = None
