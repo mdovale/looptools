@@ -2,7 +2,7 @@ from looptools.loopmath import *
 from looptools import dimension as dim
 from looptools.plots import default_rc
 
-import re
+import warnings
 import copy
 import numbers
 import control
@@ -257,7 +257,8 @@ class Component:
         elif wrap and not deg:
             phase = (phase + np.pi) % (2 * np.pi) - np.pi
 
-        with plt.rc_context(default_rc):
+        with plt.rc_context(default_rc), warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
             if axes is None:
                 fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=figsize, sharex=True)
             else:
