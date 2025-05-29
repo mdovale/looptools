@@ -247,18 +247,19 @@ class Component:
         axes : tuple of matplotlib.axes.Axes
             The magnitude and phase axes used.
         """
-        f = np.asarray(frfr)
-        val = self.TF(f=f)
-
-        mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
-        phase = np.angle(val, deg=deg)
-        if wrap and deg:
-            phase = (phase + 180) % 360 - 180
-        elif wrap and not deg:
-            phase = (phase + np.pi) % (2 * np.pi) - np.pi
-
         with plt.rc_context(default_rc), warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
+            
+            f = np.asarray(frfr)
+            val = self.TF(f=f)
+
+            mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+            phase = np.angle(val, deg=deg)
+            if wrap and deg:
+                phase = (phase + 180) % 360 - 180
+            elif wrap and not deg:
+                phase = (phase + np.pi) % (2 * np.pi) - np.pi
+
             if axes is None:
                 fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=figsize, sharex=True)
             else:
