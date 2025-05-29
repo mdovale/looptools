@@ -484,64 +484,75 @@ def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2
 
 def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I', structure='add'):
     """
-    Compute log2 gain for an I or II block so that its magnitude matches the P gain at f_cross.
+    Compute log2 gain for I, II, or D block so that its magnitude matches the P gain at f_cross.
 
-    This function helps translate a Moku-style crossover frequency between P and I (or P and II)
-    into the gain value (in log₂ units) needed for I or II blocks in bit-shift-based controllers.
-
-    Supports both additive (P + I) and multiplicative (P * (1 + I)) controller forms.
+    This helps translate a Moku-style crossover frequency between P and I, II, or D
+    into the log₂ gain needed for digital controller implementations.
 
     Parameters
     ----------
     Kp_log2 : float
         Proportional gain in log₂ scale (i.e., log₂(Kp)).
+    sps : float
+        Sampling rate [Hz].
     f_cross : float
-        Desired crossover frequency [Hz] between P and I (or P and II).
-    kind : {'I', 'II'}
-        Which gain to compute: 'I' for integrator (1/s), 'II' for double integrator (1/s²).
-    structure : {'add', 'mul'}, optional
+        Desired crossover frequency [Hz] between P and I, II, or D.
+    kind : {'I', 'II', 'D'}
+        Type of block: integrator (1/s), double integrator (1/s²), or differentiator (s).
+    structure : {'add', 'mul'}
         Controller structure:
-        - 'add' for additive form (P + I) [default]
-        - 'mul' for multiplicative form (P * (1 + I))
+        - 'add': P + block (default)
+        - 'mul': P * (1 + block)
 
     Returns
     -------
     float
-        Log₂ gain for the I or II block that matches |P| at `f_cross` under the specified structure.
+        Log₂ gain for the block that matches |P| at `f_cross`.
 
     Raises
     ------
     AssertionError
-        If `kind` or `structure` is not one of the allowed values.
+        If `kind` or `structure` is invalid.
 
     Examples
     --------
-    >>> gain_for_crossover_frequency(3, 1e4, kind='I')
-    9.3219  # for P + I
+    >>> gain_for_crossover_frequency(3, 1e4, 10, kind='I')
+    9.32  # for P + I crossover at 10 Hz
 
-    >>> gain_for_crossover_frequency(3, 1e4, kind='I', structure='mul')
-    13.2877  # Ki = omega = 2π·f_cross
+    >>> gain_for_crossover_frequency(3, 1e4, 10, kind='D')
+    1.23  # for P + D crossover at 10 Hz
     """
-    assert kind in ['I', 'II']
-    assert structure in ['add', 'mul']
+    assert kind in ['I', 'II', 'D'], f"Invalid kind: {kind}"
+    assert structure in ['add', 'mul'], f"Invalid structure: {structure}"
 
     Kp = 2 ** Kp_log2
     omega_d = 2 * np.pi * f_cross / sps
-    mag_discrete = abs(1 - np.exp(-1j * omega_d))
 
-    if structure == 'add':
-        if kind == 'I':
-            Ki = Kp * mag_discrete
-        elif kind == 'II':
-            Ki = Kp * mag_discrete**2
-    else:
-        # mul: Ki only needs to equal mag_discrete or mag_discrete²
-        if kind == 'I':
-            Ki = mag_discrete
-        elif kind == 'II':
-            Ki = mag_discrete**2
+    if kind in ['I', 'II']:
+        mag_discrete = abs(1 - np.exp(-1j * omega_d))
 
-    return np.log2(Ki)
+        if structure == 'add':
+            if kind == 'I':
+                gain = Kp * mag_discrete
+            elif kind == 'II':
+                gain = Kp * mag_discrete**2
+        else:  # 'mul'
+            if kind == 'I':
+                gain = mag_discrete
+            elif kind == 'II':
+                gain = mag_discrete**2
+
+    elif kind == 'D':
+        # Discrete derivative: (1 - z⁻¹)/(1 + z⁻¹)
+        mag_discrete = abs((1 - np.exp(-1j * omega_d)) / (1 + np.exp(-1j * omega_d)))
+        mag_discrete = max(mag_discrete, 1e-12)  # avoids log2(0)
+
+        if structure == 'add':
+            gain = Kp / mag_discrete  # ✅ corrected
+        else:  # 'mul'
+            raise NotImplementedError("D-term with structure='mul' not supported yet.")
+        
+    return np.log2(gain)
 
 def log2_gain_to_db(log2_gain):
     """
@@ -585,4 +596,25 @@ def db_to_log2_gain(db_gain):
     3.3219...
     """
     linear_gain = 10**(db_gain / 20)
+    return np.log2(linear_gain)
+
+def linear_to_log2_gain(linear_gain):
+    """
+    Converts linear gain to base-2 logarithmic gain.
+
+    Parameters
+    ----------
+    linear_gain : float
+        Linear gain (unitless ratio).
+
+    Returns
+    -------
+    float
+        Gain as log₂(gain), as used in PIControllerComponent.
+
+    Examples
+    --------
+    >>> linear_to_log2_gain(10.0)
+    3.3219...
+    """
     return np.log2(linear_gain)

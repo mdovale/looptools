@@ -199,7 +199,42 @@ class Component:
             self._loop.notify_callbacks()
 
     def extrapolate_tf(self, f_trans, power=-2, size=2, solver=True):
-        self.TF = partial(transfer_function, com=self, extrapolate=True, f_trans=f_trans, power=power, size=size, solver=solver)
+        """
+        Replace the component's transfer function with an extrapolated version.
+
+        This method sets `self.TF` to a partial function of `transfer_function`
+        that enables extrapolation beyond the provided frequency data. It is useful 
+        when simulating or analyzing loop behavior outside the measured or modeled 
+        frequency range. It is specially useful to avoid numerical errors when
+        simulating a double integrator.
+
+        Parameters
+        ----------
+        f_trans : float
+            The transition frequency (in Hz) beyond which the extrapolation 
+            is applied (at f>f_trans there will be no extrapolation).
+        power : float, optional
+            Power-law exponent used in extrapolation (e.g., -2 for 1/f² roll-off).
+        size : int, optional
+            Number of points used in extrapolation fitting (not used if `solver=True`).
+        solver : bool, optional
+            If True, use solver-based extrapolation. Otherwise use simple fit.
+
+        Notes
+        -----
+        This replaces the existing `self.TF` with a new callable that includes 
+        extrapolation logic. Use with caution when accuracy at extrapolated 
+        frequencies is critical.
+        """
+        self.TF = partial(
+            transfer_function,
+            com=self,
+            extrapolate=True,
+            f_trans=f_trans,
+            power=power,
+            size=size,
+            solver=solver
+        )
 
     def group_delay(self, omega):
         """
@@ -249,7 +284,7 @@ class Component:
         """
         with plt.rc_context(default_rc), warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            
+
             f = np.asarray(frfr)
             val = self.TF(f=f)
 
