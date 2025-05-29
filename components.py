@@ -965,8 +965,8 @@ class ActuatorComponent(Component):
     def __init__(self, name, sps, Ka_pzt, Fa_pzt, unit):
         self._Fa_pzt = Fa_pzt
         self._Ka_pzt = Ka_pzt
-        nume = polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), sps)
-        deno = polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), sps)
+        nume = lm.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), sps)
+        deno = lm.polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), sps)
         super().__init__(name, sps, nume, deno, unit=unit)
         self.properties = {'Ka_pzt': (lambda: self.Ka_pzt, lambda value: setattr(self, 'Ka_pzt', value)),
                             'Fa_pzt': (lambda: self.Fa_pzt, lambda value: setattr(self, 'Fa_pzt', value))}
@@ -997,8 +997,8 @@ class ActuatorComponent(Component):
         self.update_component()
 
     def update_component(self):
-        nume = polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), self.sps)
-        deno = polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), self.sps)
+        nume = lm.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), self.sps)
+        deno = lm.polynomial_conversion_s_to_z(np.array([1.0/(2.0*np.pi*self._Fa_pzt), 1.0]), self.sps)
         super().__init__(self.name, self.sps, nume, deno, unit=self.unit)
 
 
@@ -1016,8 +1016,8 @@ class ImplicitAccumulatorComponent(Component):
         Sample rate in Hz.
     """
     def __init__(self, name, sps):
-        nume = polynomial_conversion_s_to_z(np.array([2.0*np.pi]), sps)
-        deno = polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps)
+        nume = lm.polynomial_conversion_s_to_z(np.array([2.0*np.pi]), sps)
+        deno = lm.polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps)
         super().__init__(name, sps, nume, deno, unit=Dimension(["rad"], ["Hz"]))
 
     def __deepcopy__(self, memo):
