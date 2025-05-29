@@ -283,10 +283,17 @@ class LOOP:
 
         def tex_fraction(tf):
             def poly_to_tex(p):
+                def fmt(c):
+                    if abs(c) < 1e-3 or abs(c) > 1e3:
+                        base, exp = f"{c:.1e}".split("e")
+                        return f"{base}\\times 10^{{{int(exp)}}}"
+                    else:
+                        return f"{c:.3g}"
+
                 terms = [
-                    f"{c:.3g}s^{i}" if i > 1 else
-                    f"{c:.3g}s" if i == 1 else
-                    f"{c:.3g}"
+                    f"{fmt(c)}s^{i}" if i > 1 else
+                    f"{fmt(c)}s" if i == 1 else
+                    f"{fmt(c)}"
                     for i, c in enumerate(reversed(p)) if abs(c) > 1e-12
                 ]
                 return " + ".join(terms) if terms else "0"
@@ -298,7 +305,6 @@ class LOOP:
                 return None
 
             return f"$\\frac{{{poly_to_tex(num)}}}{{{poly_to_tex(den)}}}$"
-
         def render_and_display(pic):
             pic._update()
             self.pic = pic
