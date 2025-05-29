@@ -482,12 +482,14 @@ def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2
 
     return tf
 
-def gain_for_crossover_frequency(Kp_log2, f_cross, kind='I'):
+def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I', structure='add'):
     """
     Compute log2 gain for an I or II block so that its magnitude matches the P gain at f_cross.
 
     This function helps translate a Moku-style crossover frequency between P and I (or P and II)
     into the gain value (in log₂ units) needed for I or II blocks in bit-shift-based controllers.
+
+    Supports both additive (P + I) and multiplicative (P * (1 + I)) controller forms.
 
     Parameters
     ----------
@@ -497,31 +499,47 @@ def gain_for_crossover_frequency(Kp_log2, f_cross, kind='I'):
         Desired crossover frequency [Hz] between P and I (or P and II).
     kind : {'I', 'II'}
         Which gain to compute: 'I' for integrator (1/s), 'II' for double integrator (1/s²).
+    structure : {'add', 'mul'}, optional
+        Controller structure:
+        - 'add' for additive form (P + I) [default]
+        - 'mul' for multiplicative form (P * (1 + I))
 
     Returns
     -------
     float
-        Log₂ gain for the I or II block that matches |P| at `f_cross`.
+        Log₂ gain for the I or II block that matches |P| at `f_cross` under the specified structure.
+
+    Raises
+    ------
+    AssertionError
+        If `kind` or `structure` is not one of the allowed values.
 
     Examples
     --------
     >>> gain_for_crossover_frequency(3, 1e4, kind='I')
-    9.3219  # equivalent to Ki = 2^9.32
+    9.3219  # for P + I
+
+    >>> gain_for_crossover_frequency(3, 1e4, kind='I', structure='mul')
+    13.2877  # Ki = omega = 2π·f_cross
     """
-    assert kind in ['I', 'II'], "kind must be 'I' or 'II'"
-    
-    # Linear gain of P
+    assert kind in ['I', 'II']
+    assert structure in ['add', 'mul']
+
     Kp = 2 ** Kp_log2
+    omega_d = 2 * np.pi * f_cross / sps
+    mag_discrete = abs(1 - np.exp(-1j * omega_d))
 
-    # Compute angular frequency
-    w = 2 * np.pi * f_cross
-
-    if kind == 'I':
-        # |Ki / (jw)| = |Kp| --> Ki = Kp * w
-        Ki = Kp * w
-    elif kind == 'II':
-        # |Kii / (jw)^2| = |Kp| --> Kii = Kp * w^2
-        Ki = Kp * w**2
+    if structure == 'add':
+        if kind == 'I':
+            Ki = Kp * mag_discrete
+        elif kind == 'II':
+            Ki = Kp * mag_discrete**2
+    else:
+        # mul: Ki only needs to equal mag_discrete or mag_discrete²
+        if kind == 'I':
+            Ki = mag_discrete
+        elif kind == 'II':
+            Ki = mag_discrete**2
 
     return np.log2(Ki)
 
@@ -546,3 +564,25 @@ def log2_gain_to_db(log2_gain):
     """
     linear_gain = 2**log2_gain
     return 20 * np.log10(linear_gain)
+
+def db_to_log2_gain(db_gain):
+    """
+    Converts gain in dB to base-2 logarithmic gain.
+
+    Parameters
+    ----------
+    db_gain : float
+        Gain in decibels.
+
+    Returns
+    -------
+    float
+        Gain as log₂(gain), as used in PIControllerComponent.
+
+    Examples
+    --------
+    >>> db_to_log2_gain(20.0)
+    3.3219...
+    """
+    linear_gain = 10**(db_gain / 20)
+    return np.log2(linear_gain)

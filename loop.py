@@ -426,17 +426,107 @@ coordinate (loop_corner) at (\\n1,\\n2);
         pic._append(tikz.Raw('\n'.join(code)))
         render_and_display(pic)
 
-    def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", *args, **kwargs):
+    def magnitude_plot(self, frfr, figsize=(5, 4), title=None, which='G', ax=None, label="", dB=False, *args, **kwargs):
+        """
+        Plot the magnitude of selected loop transfer functions at specified frequencies.
+
+        Parameters
+        ----------
+        frfr : array_like
+            Frequency array in Hz at which to evaluate the transfer functions.
+        figsize : tuple, optional
+            Figure size for the plot.
+        title : str, optional
+            Title for the magnitude plot.
+        which : str or list, optional
+            Which transfer functions to plot: 'G', 'H', 'E', or a list thereof.
+        axes : matplotlib.axes.Axes, optional
+            Existing matplotlib Axes to plot into. If None, creates a new figure and axes.
+        label : str, optional
+            Label prefix for the plotted line (e.g., 'Loop 1: '). Defaults to empty string.
+        dB : bool, optional
+            If True, plot magnitude in dB (20*log10). Otherwise, plot absolute magnitude.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes.Axes
+            The axis object used for the plot.
+        """
+        with plt.rc_context(default_rc):
+            if ax is None:
+                fig, ax = plt.subplots(1, 1, figsize=figsize)
+            else:
+                ax = ax
+                fig = ax.figure
+
+            prefix = f"{label}: " if label else ""
+
+            if which == 'all':
+                which = ['G', 'H', 'E']
+            else:
+                which = [w.upper() for w in which] if isinstance(which, (list, tuple)) else [which.upper()]
+                for w in which:
+                    if w not in ('G', 'H', 'E'):
+                        raise ValueError(f"Invalid transfer function key: '{w}'. Use 'G', 'H', or 'E'.")
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+
+                def plot_tf(tf_func, name):
+                    val = tf_func(f=frfr)
+                    mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+                    ax.semilogx(frfr, mag, label=prefix + f"{name}(f)", *args, **kwargs)
+
+                if 'G' in which:
+                    plot_tf(self.Gf, "G")
+                if 'H' in which:
+                    plot_tf(self.Hf, "H")
+                if 'E' in which:
+                    plot_tf(self.Ef, "E")
+
+            ax.set_xlabel("Frequency (Hz)")
+            ax.set_ylabel("Magnitude (dB)" if dB else "Magnitude")
+            ax.set_xlim(frfr[0], frfr[-1])
+
+            if label is not False:
+                ax.legend(loc='upper left', 
+                        bbox_to_anchor=(1, 1), 
+                        edgecolor='black', 
+                        fancybox=True, 
+                        shadow=True, 
+                        framealpha=1,
+                        fontsize=8)
+
+            ax.minorticks_on()
+            ax.grid(True, which='minor', linestyle='--', linewidth=0.5)
+
+            if title is not None:
+                ax.set_title(title)
+
+            fig.tight_layout()
+            return fig, ax
+
+    def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", dB=False, *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
         Parameters
         ----------
         frfr : array_like
             Frequency array in Hz at which to evaluate the transfer functions.
+        figsize : tuple, optional
+            Figure size for the plot.
+        title : str, optional
+            Title for the magnitude plot.
+        which : str or list, optional
+            Which transfer functions to plot: 'G', 'H', 'E', or 'all'.
         axes : tuple of matplotlib.axes.Axes, optional
             Existing axes to plot into. If None, creates new figure and axes.
         label : str, optional
             Base label prefix for this loop's lines (e.g., 'Loop 1'). If None, defaults to empty.
+        dB : bool, optional
+            If True, plot magnitude in dB (20*log10). Otherwise, plot absolute magnitude.
 
         Returns
         -------
@@ -464,26 +554,23 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
-                # Plot open-loop transfer function
+
+                def plot_tf(tf_func, name):
+                    val = tf_func(f=frfr)
+                    mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+                    ax_mag_func = ax_mag.semilogx if dB else ax_mag.loglog
+                    ax_mag_func(frfr, mag, label=prefix + f"{name}(f)", *args, **kwargs)
+                    ax_phase.semilogx(frfr, np.angle(val, deg=True), *args, **kwargs)
+
                 if 'G' in which:
-                    G_val = self.Gf(f=frfr)
-                    ax_mag.loglog(frfr, np.abs(G_val), label=prefix + "G(f)", *args, **kwargs)
-                    ax_phase.semilogx(frfr, np.angle(G_val, deg=True), *args, **kwargs)
-
-                # Plot system function
+                    plot_tf(self.Gf, "G")
                 if 'H' in which:
-                    H_val = self.Hf(f=frfr)
-                    ax_mag.loglog(frfr, np.abs(H_val), label=prefix + "H(f)", *args, **kwargs)
-                    ax_phase.semilogx(frfr, np.angle(H_val, deg=True), *args, **kwargs)
-
-                # Plot error function
+                    plot_tf(self.Hf, "H")
                 if 'E' in which:
-                    E_val = self.Ef(f=frfr)
-                    ax_mag.loglog(frfr, np.abs(E_val), label=prefix + "E(f)", *args, **kwargs)
-                    ax_phase.semilogx(frfr, np.angle(E_val, deg=True), *args, **kwargs)
+                    plot_tf(self.Ef, "E")
 
             ax_phase.set_xlabel("Frequency (Hz)")
-            ax_mag.set_ylabel("Magnitude")
+            ax_mag.set_ylabel("Magnitude (dB)" if dB else "Magnitude")
             ax_phase.set_ylabel("Phase (deg)")
 
             ax_mag.set_xlim(frfr[0], frfr[-1])
@@ -497,7 +584,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
                             shadow=True, 
                             framealpha=1,
                             fontsize=8)
-            
+
             ax_mag.minorticks_on()
             ax_phase.minorticks_on()
             ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)

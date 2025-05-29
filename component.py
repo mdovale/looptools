@@ -7,13 +7,18 @@ import copy
 import numbers
 import control
 import numpy as np
-from sympy import symbols, Poly, sympify
+from sympy import symbols, Poly, sympify, Symbol
+from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
 from functools import partial
 import scipy.signal as sig
 import matplotlib.pyplot as plt
 import logging
 logger = logging.getLogger(__name__)
 
+
+from sympy import Symbol, Poly
+from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
+from looptools.utils import normalize_tf_string  # assuming you move it there
 
 class Component:
     def __init__(self, name, sps, nume=np.array([1.0]), deno=np.array([1.0]), tf=None, unit=dim.Dimension(dimensionless=True)):
@@ -61,27 +66,24 @@ class Component:
             self.TE.name = name
 
         elif isinstance(tf, str):
-            # Insert missing multiplication and clean syntax
-            tf_clean = tf.replace('^', '**')
-            tf_clean = re.sub(r'(?<=\d)(?=[a-zA-Z])', '*', tf_clean)  # 2s -> 2*s
-            tf_clean = re.sub(r'(?<=[a-zA-Z])(?=\d)', '*', tf_clean)  # s2 -> s*2
-            tf_clean = re.sub(r'(?<=[a-zA-Z])(?=[a-zA-Z])', '*', tf_clean)  # sA -> s*A
+            tf_clean = normalize_tf_string(tf, debug=False)
 
             try:
-                expr = sympify(tf_clean)
+                z = Symbol('z')
+                expr = parse_expr(
+                    tf_clean,
+                    local_dict={'z': z},
+                    transformations=standard_transformations + (implicit_multiplication_application,)
+                )
             except Exception as e:
                 raise ValueError(f"Failed to parse TF expression '{tf}': {e}")
 
             vars = list(expr.free_symbols)
 
             if not vars:
-                # constant gain
                 value = float(expr)
                 self.nume = np.array([value])
                 self.deno = np.array([1.0])
-                self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-                self.TE.name = name
-
             elif len(vars) == 1:
                 var = vars[0]
                 nume_expr, deno_expr = expr.as_numer_denom()
@@ -89,10 +91,11 @@ class Component:
                 deno_poly = Poly(deno_expr, var)
                 self.nume = np.array(nume_poly.all_coeffs(), dtype=float)
                 self.deno = np.array(deno_poly.all_coeffs(), dtype=float)
-                self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-                self.TE.name = name
             else:
                 raise ValueError(f"Expected one symbolic variable in TF expression, found: {vars}")
+
+            self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+            self.TE.name = name
 
         elif isinstance(tf, numbers.Number):
             self.nume = np.array([float(tf)])
