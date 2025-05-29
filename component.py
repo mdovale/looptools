@@ -198,6 +198,9 @@ class Component:
         if getattr(self, '_loop', None) != None:
             self._loop.notify_callbacks()
 
+    def extrapolate_tf(self, f_trans, power=-2, size=2, solver=True):
+        self.TF = partial(transfer_function, com=self, extrapolate=True, f_trans=f_trans, power=power, size=size, solver=solver)
+
     def group_delay(self, omega):
         """
         Compute the group delay of the component.
@@ -215,32 +218,6 @@ class Component:
         # todo: remove this after the consistency check with tf_group_delay() in auxiliary.py 
         _, delay = sig.group_delay((self.nume, self.deno), omega, fs=2*np.pi*self.sps)
         return delay/self.sps
-
-    def bode(self, omega, dB=False, deg=True, wrap=True):
-        """
-        Compute the Bode plot data (magnitude and phase) of the component.
-
-        Parameters
-        ----------
-        omega : array_like
-            Angular frequency vector (rad/s).
-        dB : bool, optional
-            If True, returns magnitude in dB.
-        deg : bool, optional
-            If True, returns phase in degrees.
-        wrap : bool, optional
-            If True, wraps phase between -π and π.
-
-        Returns
-        -------
-        tuple
-            (bode_dict, ugf, margin) where:
-            - bode_dict: dict with 'f', 'mag', and 'phase'
-            - ugf: unity-gain frequency
-            - margin: phase margin at UGF
-        """
-        bode, ugf, margin = compute_bode(self.TE, omega, sps=self.sps, dB=dB, deg=deg, wrap=wrap)
-        return bode, ugf, margin
     
     def bode_plot(self, frfr, figsize=(4, 4), title=None, dB=False, deg=True, wrap=True, axes=None, label=None, *args, **kwargs):
         """
@@ -269,14 +246,16 @@ class Component:
             The figure object containing the plots.
         axes : tuple of matplotlib.axes.Axes
             The magnitude and phase axes used.
-        ugf : float
-            Unity-gain frequency (Hz).
-        margin : float
-            Phase margin (degrees).
         """
-        omega = 2 * np.pi * np.asarray(frfr)
+        f = np.asarray(frfr)
+        val = self.TF(f=f)
 
-        bode, ugf, margin = compute_bode(self.TE, omega, dB=dB, deg=deg, wrap=wrap)
+        mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+        phase = np.angle(val, deg=deg)
+        if wrap and deg:
+            phase = (phase + 180) % 360 - 180
+        elif wrap and not deg:
+            phase = (phase + np.pi) % (2 * np.pi) - np.pi
 
         with plt.rc_context(default_rc):
             if axes is None:
@@ -286,21 +265,17 @@ class Component:
                 fig = ax_mag.figure
 
             lbl = label if label is not None else self.name
+            ax_mag_func = ax_mag.semilogx if dB else ax_mag.loglog
+            ax_mag_func(f, mag, label=lbl, *args, **kwargs)
+            ax_phase.semilogx(f, phase, label=lbl, *args, **kwargs)
 
-            # Plot magnitude
-            if dB:
-                ax_mag.semilogx(bode["f"], bode["mag"], label=lbl, *args, **kwargs)
-                ax_mag.set_ylabel("Magnitude (dB)")
-            else:
-                ax_mag.loglog(bode["f"], bode["mag"], label=lbl, *args, **kwargs)
-                ax_mag.set_ylabel("Magnitude")
-
-            # Plot phase
-            ax_phase.semilogx(bode["f"], bode["phase"], label=lbl, *args, **kwargs)
+            ax_mag.set_ylabel("Magnitude (dB)" if dB else "Magnitude")
             ax_phase.set_ylabel("Phase (deg)" if deg else "Phase (rad)")
             ax_phase.set_xlabel("Frequency (Hz)")
-            ax_mag.set_xlim(bode["f"][0], bode["f"][-1])
-            ax_phase.set_xlim(bode["f"][0], bode["f"][-1])
+
+            ax_mag.set_xlim(f[0], f[-1])
+            ax_phase.set_xlim(f[0], f[-1])
+
             ax_mag.minorticks_on()
             ax_phase.minorticks_on()
             ax_mag.grid(True, which='minor', linestyle='--', linewidth=0.5)
@@ -320,52 +295,6 @@ class Component:
             fig.align_ylabels()
 
             return fig, (ax_mag, ax_phase)
-
-def compute_bode(tf, omega, dB=False, deg=True, wrap=True):
-    """
-    Compute Bode diagram data and loop performance metrics.
-
-    Parameters
-    ----------
-    tf : control.TransferFunction
-        Transfer function to analyze.
-    omega : array_like
-        Angular frequency vector (rad/s).
-    sps : float, optional
-        Sampling rate (Hz).
-    dB : bool, optional
-        Return magnitude in dB if True.
-    deg : bool, optional
-        Return phase in degrees if True.
-    wrap : bool, optional
-        Wrap phase between -π and π if True.
-
-    Returns
-    -------
-    tuple
-        (bode_dict, ugf, margin)
-        - bode_dict: dict with 'f', 'mag', and 'phase'
-        - ugf: unity-gain frequency
-        - margin: phase margin at UGF
-    """
-    # : compute bode
-    # mag, phase, _ = control.bode(tf, omega, dB=False, plot=False)
-    mag, phase, _ = control.frequency_response(tf, omega)
-    fourier_freq = omega/(2*np.pi) # Hz of control.bode does not work for some reason
-
-    # : some treatments with options
-    if dB:
-        mag = 20*np.log10(mag)
-    if wrap:
-        phase = wrap_phase(phase)
-    if deg: # deg of control.bode does not work for some reason
-        phase *= (180/np.pi)
-    bode = {"f":fourier_freq, "mag":mag, "phase":phase}
-
-    # : compute UGF
-    ugf, margin = get_margin([mag,phase], fourier_freq, dB=dB, deg=deg)
-
-    return bode, ugf, margin
 
 def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
     """
