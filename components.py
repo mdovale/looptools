@@ -826,17 +826,23 @@ class MokuPIDController(Component):
     @property
     def Fc_i(self): return self._Fc_i
     @Fc_i.setter
-    def Fc_i(self, value): self._Fc_i = float(value); self.update_component()
+    def Fc_i(self, value):
+        self._Fc_i = float(value) if value is not None else None
+        self.update_component()
 
     @property
     def Fc_ii(self): return self._Fc_ii
     @Fc_ii.setter
-    def Fc_ii(self, value): self._Fc_ii = float(value); self.update_component()
+    def Fc_ii(self, value):
+        self._Fc_ii = float(value) if value is not None else None
+        self.update_component()
 
     @property
     def Fc_d(self): return self._Fc_d
     @Fc_d.setter
-    def Fc_d(self, value): self._Fc_d = float(value); self.update_component()
+    def Fc_d(self, value):
+        self._Fc_d = float(value) if value is not None else None
+        self.update_component()
 
 
 class PAComponent(Component):
