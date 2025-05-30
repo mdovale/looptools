@@ -426,7 +426,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
         pic._append(tikz.Raw('\n'.join(code)))
         render_and_display(pic)
 
-    def magnitude_plot(self, frfr, figsize=(5, 4), title=None, which='G', ax=None, label="", dB=False, *args, **kwargs):
+    def magnitude_plot(self, frfr, figsize=(5, 4), title=None, which='G', ax=None, label=None, label_prefix=None, legend=True, dB=False, *args, **kwargs):
         """
         Plot the magnitude of selected loop transfer functions at specified frequencies.
 
@@ -461,7 +461,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
                 ax = ax
                 fig = ax.figure
 
-            prefix = f"{label}: " if label else ""
+            label_prefix = f"{label_prefix}: " if label_prefix else ""
 
             if which == 'all':
                 which = ['G', 'H', 'E']
@@ -477,20 +477,23 @@ coordinate (loop_corner) at (\\n1,\\n2);
                 def plot_tf(tf_func, name):
                     val = tf_func(f=frfr)
                     mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
-                    ax.semilogx(frfr, mag, label=prefix + f"{name}(f)", *args, **kwargs)
+                    if label is not None:
+                        ax.semilogx(frfr, mag, label=label_prefix+label, *args, **kwargs)
+                    else:
+                        ax.semilogx(frfr, mag, label=label_prefix+name, *args, **kwargs)
 
                 if 'G' in which:
-                    plot_tf(self.Gf, "G")
+                    plot_tf(self.Gf, 'G')
                 if 'H' in which:
-                    plot_tf(self.Hf, "H")
+                    plot_tf(self.Hf, 'H')
                 if 'E' in which:
-                    plot_tf(self.Ef, "E")
+                    plot_tf(self.Ef, 'E')
 
             ax.set_xlabel("Frequency (Hz)")
             ax.set_ylabel("Magnitude (dB)" if dB else "Magnitude")
             ax.set_xlim(frfr[0], frfr[-1])
 
-            if label is not False:
+            if legend:
                 ax.legend(loc='upper left', 
                         bbox_to_anchor=(1, 1), 
                         edgecolor='black', 
@@ -508,7 +511,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
             fig.tight_layout()
             return fig, ax
 
-    def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label="", dB=False, *args, **kwargs):
+    def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label=None, label_prefix=None, legend=True, dB=False, *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
         Parameters
@@ -542,7 +545,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
                 ax_mag, ax_phase = axes
                 fig = ax_mag.figure
 
-            prefix = f"{label}: " if label else ""
+            label_prefix = f"{label_prefix}: " if label_prefix else ""
 
             if which == 'all':
                 which = ['G', 'H', 'E']
@@ -559,7 +562,10 @@ coordinate (loop_corner) at (\\n1,\\n2);
                     val = tf_func(f=frfr)
                     mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
                     ax_mag_func = ax_mag.semilogx if dB else ax_mag.loglog
-                    ax_mag_func(frfr, mag, label=prefix + f"{name}(f)", *args, **kwargs)
+                    if label is not None:
+                        ax_mag_func(frfr, mag, label=label_prefix+label, *args, **kwargs)
+                    else:
+                        ax_mag_func(frfr, mag, label=label_prefix+name, *args, **kwargs)
                     ax_phase.semilogx(frfr, np.angle(val, deg=True), *args, **kwargs)
 
                 if 'G' in which:
@@ -576,7 +582,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
             ax_mag.set_xlim(frfr[0], frfr[-1])
             ax_phase.set_xlim(frfr[0], frfr[-1])
 
-            if label is not False:
+            if legend:
                 ax_mag.legend(loc='upper left', 
                             bbox_to_anchor=(1, 1), 
                             edgecolor='black', 
