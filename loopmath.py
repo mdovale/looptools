@@ -368,7 +368,7 @@ def tf_power_solver(f, tf, fnew, power):
 
     return tfnew
 
-def tf_power_extrapolate(f, tf, f_trans, power, size=2, solver=True):
+def tf_power_extrapolate(f, tf, f_trans, power, side='left', size=2, solver=True):
     """
     Extrapolate a transfer function below a transition frequency using a power-law model.
 
@@ -402,7 +402,10 @@ def tf_power_extrapolate(f, tf, f_trans, power, size=2, solver=True):
         tftmp = tftmp[:size]
         tfnew = tf_power_fitting(ftmp, tftmp, f, power=power)
 
-    tfnew[f>f_trans] = tf[f>f_trans]
+    if side == 'left':
+        tfnew[f>f_trans] = tf[f>f_trans]
+    elif side == 'right':
+        tfnew[f<f_trans] = tf[f<f_trans]
 
     return tfnew
 
@@ -529,29 +532,30 @@ def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I', structure='add
     omega_d = 2 * np.pi * f_cross / sps
 
     if kind in ['I', 'II']:
-        mag_discrete = abs(1 - np.exp(-1j * omega_d))
+        # Use exact magnitude formula: |1 - e^{-jω}| = 2 sin(ω/2)
+        sin_term = 2 * np.sin(omega_d / 2)
+
+        if kind == 'I':
+            mag = sin_term
+        elif kind == 'II':
+            mag = sin_term ** 2  # correct discrete double integrator magnitude
 
         if structure == 'add':
-            if kind == 'I':
-                gain = Kp * mag_discrete
-            elif kind == 'II':
-                gain = Kp * mag_discrete**2
+            gain = Kp * mag
         else:  # 'mul'
-            if kind == 'I':
-                gain = mag_discrete
-            elif kind == 'II':
-                gain = mag_discrete**2
+            gain = mag
 
     elif kind == 'D':
         # Discrete derivative: (1 - z⁻¹)/(1 + z⁻¹)
-        mag_discrete = abs((1 - np.exp(-1j * omega_d)) / (1 + np.exp(-1j * omega_d)))
-        mag_discrete = max(mag_discrete, 1e-12)  # avoids log2(0)
+        exp_negj = np.exp(-1j * omega_d)
+        mag_discrete = abs((1 - exp_negj) / (1 + exp_negj))
+        mag_discrete = max(mag_discrete, 1e-12)  # prevent log2(0)
 
         if structure == 'add':
-            gain = Kp / mag_discrete  # ✅ corrected
+            gain = Kp / mag_discrete
         else:  # 'mul'
             raise NotImplementedError("D-term with structure='mul' not supported yet.")
-        
+
     return np.log2(gain)
 
 def log2_gain_to_db(log2_gain):
