@@ -21,7 +21,7 @@ from sympy.parsing.sympy_parser import parse_expr, standard_transformations, imp
 from looptools.utils import normalize_tf_string  # assuming you move it there
 
 class Component:
-    def __init__(self, name, sps, nume=np.array([1.0]), deno=np.array([1.0]), tf=None, unit=dim.Dimension(dimensionless=True)):
+    def __init__(self, name, sps, nume=np.array([1.0]), deno=np.array([1.0]), tf=None, domain='z', unit=dim.Dimension(dimensionless=True)):
         """
         Represents a component in a control loop with its transfer function.
 
@@ -34,13 +34,21 @@ class Component:
         name : str
             Name of the component.
         sps : float
-            Sample rate of the control loop (Hz).
+            Sample rate of the control loop (Hz). Required if `domain='s'`.
+        nume : array_like, optional
+            Numerator coefficients of the transfer function (if `tf` is None).
+        deno : array_like, optional
+            Denominator coefficients of the transfer function (if `tf` is None).
         tf : str | float | control.TransferFunction | tuple
             Transfer function specification. Can be:
-            - A string using any variable (e.g. '(s + 1)/(s^2 + 0.1s + 10)')
+            - A string expression in 'z' or 's' (depending on `domain`)
             - A scalar (interpreted as gain)
             - A control.TransferFunction object
-            - A (nume, deno) tuple/list
+            - A (nume, deno) tuple or list
+        domain : {'z', 's'}, optional
+            Specifies how to interpret string-based transfer functions:
+            - 'z' (default): interpret the expression as a Z-domain TF
+            - 's': interpret as an S-domain TF, and discretize using the bilinear transform
         unit : Dimension, optional
             Unit of the component.
 
@@ -63,45 +71,59 @@ class Component:
             self.nume = nume
             self.deno = deno
             self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-            self.TE.name = name
 
         elif isinstance(tf, str):
             tf_clean = normalize_tf_string(tf, debug=False)
 
             try:
-                z = Symbol('z')
-                expr = parse_expr(
-                    tf_clean,
-                    local_dict={'z': z},
-                    transformations=standard_transformations + (implicit_multiplication_application,)
-                )
+                # Determine variable context
+                if domain == 's':
+                    if self.sps is None:
+                        raise ValueError("sps must be specified when domain='s'")
+                    var = Symbol('s')
+                    expr = parse_expr(tf_clean, local_dict={'s': var},
+                                      transformations=standard_transformations + (implicit_multiplication_application,))
+                elif domain == 'z':
+                    var = Symbol('z')
+                    expr = parse_expr(tf_clean, local_dict={'z': var},
+                                      transformations=standard_transformations + (implicit_multiplication_application,))
+                else:
+                    raise ValueError(f"Unrecognized domain '{domain}'. Use 's' or 'z'.")
             except Exception as e:
                 raise ValueError(f"Failed to parse TF expression '{tf}': {e}")
 
             vars = list(expr.free_symbols)
-
             if not vars:
                 value = float(expr)
                 self.nume = np.array([value])
                 self.deno = np.array([1.0])
+
             elif len(vars) == 1:
-                var = vars[0]
                 nume_expr, deno_expr = expr.as_numer_denom()
                 nume_poly = Poly(nume_expr, var)
                 deno_poly = Poly(deno_expr, var)
-                self.nume = np.array(nume_poly.all_coeffs(), dtype=float)
-                self.deno = np.array(deno_poly.all_coeffs(), dtype=float)
+                nume_raw = np.array(nume_poly.all_coeffs(), dtype=float)
+                deno_raw = np.array(deno_poly.all_coeffs(), dtype=float)
+
+                if domain == 'z':
+                    self.nume = nume_raw
+                    self.deno = deno_raw
+                    self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+
+                elif domain == 's':
+                    from scipy.signal import cont2discrete
+                    sysd = cont2discrete((nume_raw, deno_raw), dt=1 / self.sps, method='bilinear')
+                    self.nume = np.asarray(sysd[0]).flatten()
+                    self.deno = np.asarray(sysd[1]).flatten()
+                    self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+
             else:
                 raise ValueError(f"Expected one symbolic variable in TF expression, found: {vars}")
-
-            self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-            self.TE.name = name
 
         elif isinstance(tf, numbers.Number):
             self.nume = np.array([float(tf)])
             self.deno = np.array([1.0])
             self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-            self.TE.name = name
 
         elif isinstance(tf, control.TransferFunction):
             (nume, deno) = control.tfdata(tf)
@@ -116,11 +138,11 @@ class Component:
             self.nume = np.array(tf[0], dtype=float)
             self.deno = np.array(tf[1], dtype=float)
             self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-            self.TE.name = name
 
         else:
             raise ValueError(f"Unsupported tf format: {type(tf)}")
 
+        self.TE.name = name
         self.update()
 
     def __add__(self, other):
