@@ -37,29 +37,44 @@ The library is designed with scientific control systems in mind—especially app
 import numpy as np
 import matplotlib.pyplot as plt
 from looptools.component import Component
-from looptools.components import PIControllerComponent
+from looptools.components import PIIControllerComponent
 from looptools.loop import LOOP
+import looptools.loopmath as lm
 
-sps = 80e6 # Loop update frequency (Hz)
-frfr = np.logspace(np.log10(1e2), np.log10(40e6), int(1e5)) # Fourier frequency array (Hz)
-frfr = frfr[0:-1]
+# Define loop parameters
+sps = 80e6  # Loop update frequency in Hz
+frfr = np.logspace(np.log10(1e0), np.log10(40e6), int(1e5))[:-1]  # Frequency array (Hz)
 
-# Define components
-plant = Component("Plant", sps, tf="1/(s^2 + 10*s - 20)")
-sensor = Component("Sensor", sps, tf="s/(s^2 + 2*s - 3.5)")
-controller = PIControllerComponent("Controller", sps, Kp=3, Ki=-3)
+# Define Plant using Laplace-domain string (auto-discretized)
+w_n = 2 * np.pi * 10e3 # 10 kHz resonance
+zeta = 0.05 # damping ratio
+plant = Component("Plant", sps=sps, tf=f"{w_n**2} / (s**2 + {2*zeta*w_n}*s + {w_n**2})", domain='s')
 
-# Build loop
-loop = LOOP(sps, [plant, sensor, controller], name='My Loop')
+# Define Sensor using z-domain string (explicit difference equation)
+sensor = Component("Sensor", sps=sps, tf="(0.391 + 0.391*z**-1) / (1 - 0.218*z**-1)", domain='z')
 
-# Visualize
+# Compute the P-servo log2 gain from a dB value
+p_log2_gain = lm.db_to_log2_gain(60)
+
+# Compute the integrator log2 gains for a certain cross-over frequency with the P-servo
+i_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, 50e3, kind='I', structure='add')
+ii_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, 5e3, kind='II', structure='add')
+
+# Define PI controller component with those gains
+controller = PIIControllerComponent("Controller", sps=sps, Kp=p_log2_gain, Ki=i_log2_gain, Kii=ii_log2_gain)
+
+# Build the loop
+loop = LOOP(sps, [plant, sensor, controller], name="My Loop")
+
+# Visualize block diagram
 loop.block_diagram(dpi=200)
 
-# Analyze
+# Bode plot of open-loop gain
 fig, ax = loop.bode_plot(frfr)
 plt.show()
 
-fig, ax = loop.nyquist_plot(frfr, which='G', logy=True, critical_point=True)
+# Nyquist plot of open-loop gain
+fig, ax = loop.nyquist_plot(frfr, which='G', logy=True, logx=True, critical_point=True)
 plt.show()
 ```
 
