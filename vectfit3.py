@@ -1,6 +1,7 @@
-# vectfit3.py module.
-
 """
+Sebastian Loaiza Elejalde
+https://github.com/SebastianL18/Vector_Fitting_for_python
+
 *** FastRelaxed Vector Fitting for Python v1.3***
 
 vectfit3.py is the implementation of Fast Relaxed Vector Fitting algortihm on python. The original code was written 
@@ -196,100 +197,95 @@ def vectfitPlot(F,fit,s,opts, initialState=False, titleLabel="Vector Fitting Res
     # Importing plots and graphs module:
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-    #matplotlib configuration:
-    plt.rcParams["font.family"]="serif"             # font type
-    plt.rcParams["mathtext.fontset"]="dejavuserif"  # font type in math expressions
-    mpl.rcParams["font.size"]=10                    # font size in points
-    mpl.rcParams["figure.dpi"]=100                  # canvas figure resolution
-    mpl.rcParams["savefig.dpi"]=300                 # saved figure resolution
-
-    freq=np.real(s/(2*pi*1j))
-    # LogLog plots: Graphs with logarithmic x and y axis
-    if opts["errplot"]:
-        fig1,ax1=plt.subplots(2,1)
-        l1=ax1[0].plot(freq,np.abs(F.T),color='c',linewidth=1.2)
-        l2=ax1[0].plot(freq,np.abs(fit.T),color='k',linewidth=1.3,linestyle="dashed")
-        ax1[0].set(xlabel="Frequency (Hz)", ylabel="Magnitude",title=titleLabel)
-        if opts["legend"]:
-            l2[0].set(label="Fitted function")
-            l1[0].set(label="F(s) samples")
-            ax1[0].legend()
-        ax1[0].grid(True)
-        #logarithmic error computation
-        logError=np.zeros(F.shape,dtype=np.float64)
-        maxError=-1e10
-        for i in range(F.shape[0]):
-            logError[i]=np.log10(np.abs(F[i]-fit[i])/np.max(np.abs(F[i])))
-            error=logError[i].max()
-            if error>maxError: maxError=error
-        maxLabel=ax1[1].plot(freq,logError.T,color='r',linewidth=1.2)
-        maxError=(10**maxError)*100
-        maxLabel[0].set(label="Max fitting error = "+str(maxError)+"%")
-        print("         * max fitting error = "+str(maxError)+"% *")
-        ax1[1].set(xlabel="Frequency (Hz)", ylabel=r"$\log_{10}$(relative error)")
-        ax1[1].legend()
-        ax1[1].grid(True)
-    else:
-        if initialState:
-            flabel="Sigma function"
-            tlabel="Vector Fitting initial state"
-        else:
-            flabel="Fitted function"
-            tlabel=titleLabel
-        fig1,ax1=plt.subplots()
-        l1=ax1.plot(freq,np.abs(F.T),color='c',linewidth=1.2,label="F(s) samples")
-        l2=ax1.plot(freq,np.abs(fit.T),color='k',linewidth=1.3,linestyle="dashed")
-        ax1.set(xlabel="Frequency (Hz)", ylabel="Magnitude",title=tlabel)
-        if opts["legend"]:
-            l2[0].set(label=flabel)
-            l1[0].set(label="F(s) samples")
-            ax1.legend()
-        ax1.grid(True)
-    if opts["phaseplot"]:
-        #fisrt function angles are computed in degrees, and then are unwrapped 
-        F_angle=np.unwrap(np.angle(F,deg=True),period=360)
-        fit_angle=np.unwrap(np.angle(fit,deg=True),period=360)
-        fig2,ax2=plt.subplots()
-        l3=ax2.plot(freq,F_angle.T,color='c',linewidth=1.2)
-        l4=ax2.plot(freq,fit_angle.T,color='k',linewidth=1.3,linestyle="dashed")
-        ax2.set(xlabel="Frequency (Hz)", ylabel="Phase angle (deg)",title=titleLabel)
-        if opts["legend"]:
-            l3[0].set(label="F(s) samples")
-            l4[0].set(label="Fitted function")
-            ax2.legend()
-        ax2.grid(True)
-    if opts["logx"] and opts["logy"]:
-        #full logarithmic graphs. Logarithmic x and y axis
+    from looptools.plots import default_rc
+    with plt.rc_context(default_rc):
+        freq=np.real(s/(2*pi*1j))
+        # LogLog plots: Graphs with logarithmic x and y axis
         if opts["errplot"]:
-            # Magnitude plot:
-            ax1[0].set_xscale("log")
-            ax1[0].set_yscale("log")
-            # Error plot
-            ax1[1].set_xscale("log")
+            fig1,ax1=plt.subplots(2,1)
+            l1=ax1[0].plot(freq,np.abs(F.T),color='c',linewidth=1.2)
+            l2=ax1[0].plot(freq,np.abs(fit.T),color='k',linewidth=1.3,linestyle="dashed")
+            ax1[0].set(xlabel="", ylabel="Magnitude",title=titleLabel)
+            if opts["legend"]:
+                l2[0].set(label="Fitted function")
+                l1[0].set(label="F(s) samples")
+                ax1[0].legend()
+            ax1[0].grid(True)
+            #logarithmic error computation
+            logError=np.zeros(F.shape,dtype=np.float64)
+            maxError=-1e10
+            for i in range(F.shape[0]):
+                logError[i]=np.log10(np.abs(F[i]-fit[i])/np.max(np.abs(F[i])))
+                error=logError[i].max()
+                if error>maxError: maxError=error
+            maxLabel=ax1[1].plot(freq,logError.T,color='r',linewidth=1.2)
+            maxError=(10**maxError)*100
+            maxLabel[0].set(label="Max fitting error = "+str(maxError)+"%")
+            print("         * max fitting error = "+str(maxError)+"% *")
+            ax1[1].set(xlabel="Frequency (Hz)", ylabel=r"$\log_{10}$(relative error)")
+            ax1[1].legend()
+            ax1[1].grid(True)
         else:
-            # Magnitude plot:
-            ax1.set_xscale("log")
-            ax1.set_yscale("log") 
+            if initialState:
+                flabel="Sigma function"
+                tlabel="Vector Fitting initial state"
+            else:
+                flabel="Fitted function"
+                tlabel=titleLabel
+            fig1,ax1=plt.subplots()
+            l1=ax1.plot(freq,np.abs(F.T),color='c',linewidth=1.2,label="F(s) samples")
+            l2=ax1.plot(freq,np.abs(fit.T),color='k',linewidth=1.3,linestyle="dashed")
+            ax1.set(xlabel="Frequency (Hz)", ylabel="Magnitude",title=tlabel)
+            if opts["legend"]:
+                l2[0].set(label=flabel)
+                l1[0].set(label="F(s) samples")
+                ax1.legend()
+            ax1.grid(True)
         if opts["phaseplot"]:
-            # Phase plot:
-            ax2.set_xscale("log")
-    elif opts["logx"]:
-        #semilogarithmic graphs. Logarithmic x and linear y axis
-        if opts["errplot"]:
-            ax1[0].set_xscale("log")
-            ax1[1].set_xscale("log")
-        else:
-            ax1.set_xscale("log")
-        if opts["phaseplot"]:
-            ax2.set_xscale("log")
-    elif opts["logy"]:
-        #semilogarithmic graphs. Linear x and logarithmic y axis
-        if opts["errplot"]:
-            ax1[0].set_yscale("log")
-        else:
-            ax1.set_yscale("log")
-    #else default linear axis configuration of plot() is used
-    plt.show()
+            #fisrt function angles are computed in degrees, and then are unwrapped 
+            F_angle=np.unwrap(np.angle(F,deg=True),period=360)
+            fit_angle=np.unwrap(np.angle(fit,deg=True),period=360)
+            fig2,ax2=plt.subplots()
+            l3=ax2.plot(freq,F_angle.T,color='c',linewidth=1.2)
+            l4=ax2.plot(freq,fit_angle.T,color='k',linewidth=1.3,linestyle="dashed")
+            ax2.set(xlabel="Frequency (Hz)", ylabel="Phase angle (deg)",title=titleLabel)
+            if opts["legend"]:
+                l3[0].set(label="F(s) samples")
+                l4[0].set(label="Fitted function")
+                ax2.legend()
+            ax2.grid(True)
+        if opts["logx"] and opts["logy"]:
+            #full logarithmic graphs. Logarithmic x and y axis
+            if opts["errplot"]:
+                # Magnitude plot:
+                ax1[0].set_xscale("log")
+                ax1[0].set_yscale("log")
+                # Error plot
+                ax1[1].set_xscale("log")
+            else:
+                # Magnitude plot:
+                ax1.set_xscale("log")
+                ax1.set_yscale("log") 
+            if opts["phaseplot"]:
+                # Phase plot:
+                ax2.set_xscale("log")
+        elif opts["logx"]:
+            #semilogarithmic graphs. Logarithmic x and linear y axis
+            if opts["errplot"]:
+                ax1[0].set_xscale("log")
+                ax1[1].set_xscale("log")
+            else:
+                ax1.set_xscale("log")
+            if opts["phaseplot"]:
+                ax2.set_xscale("log")
+        elif opts["logy"]:
+            #semilogarithmic graphs. Linear x and logarithmic y axis
+            if opts["errplot"]:
+                ax1[0].set_yscale("log")
+            else:
+                ax1.set_yscale("log")
+        #else default linear axis configuration of plot() is used
+        plt.show()
       
 # vectfit3() subroutine.
 def buildSER(Ac,Bc,Cc,Dr,Er,complex_format,symmetric_data,RMO_matrixData):
