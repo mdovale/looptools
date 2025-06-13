@@ -485,12 +485,13 @@ def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2
 
     return tf
 
-def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I', structure='add'):
+def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I'):
     """
-    Compute log2 gain for I, II, or D block so that its magnitude matches the P gain at f_cross.
+    Compute log₂ gain for I, II, or D block so that its magnitude matches the target at f_cross.
 
-    This helps translate a Moku-style crossover frequency between P and I, II, or D
-    into the log₂ gain needed for digital controller implementations.
+    For 'I' and 'D', the target is |P|. For 'II', both I and II gains are returned so that:
+        - |I| = |P| at f_I
+        - |II| = |P + I| at f_II
 
     Parameters
     ----------
@@ -498,65 +499,59 @@ def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I', structure='add
         Proportional gain in log₂ scale (i.e., log₂(Kp)).
     sps : float
         Sampling rate [Hz].
-    f_cross : float
-        Desired crossover frequency [Hz] between P and I, II, or D.
+    f_cross : float or tuple(float, float)
+        Desired crossover frequency [Hz]. For 'II', must be a tuple: (f_I, f_II).
     kind : {'I', 'II', 'D'}
-        Type of block: integrator (1/s), double integrator (1/s²), or differentiator (s).
-    structure : {'add', 'mul'}
-        Controller structure:
-        - 'add': P + block (default)
-        - 'mul': P * (1 + block)
+        Type of block to match.
 
     Returns
     -------
-    float
-        Log₂ gain for the block that matches |P| at `f_cross`.
+    float or tuple(float, float)
+        - For 'I' or 'D': log₂ gain for the block.
+        - For 'II': tuple (Ki_log2, Kii_log2)
 
     Raises
     ------
     AssertionError
-        If `kind` or `structure` is invalid.
-
-    Examples
-    --------
-    >>> gain_for_crossover_frequency(3, 1e4, 10, kind='I')
-    9.32  # for P + I crossover at 10 Hz
-
-    >>> gain_for_crossover_frequency(3, 1e4, 10, kind='D')
-    1.23  # for P + D crossover at 10 Hz
+        If parameters are missing or invalid.
     """
     assert kind in ['I', 'II', 'D'], f"Invalid kind: {kind}"
-    assert structure in ['add', 'mul'], f"Invalid structure: {structure}"
-
     Kp = 2 ** Kp_log2
-    omega_d = 2 * np.pi * f_cross / sps
 
-    if kind in ['I', 'II']:
-        # Use exact magnitude formula: |1 - e^{-jω}| = 2 sin(ω/2)
-        sin_term = 2 * np.sin(omega_d / 2)
+    if kind == 'II':
+        assert isinstance(f_cross, (tuple, list)) and len(f_cross) == 2, \
+            "For kind='II', f_cross must be a tuple: (f_I, f_II)."
+        f_I, f_II = f_cross
 
-        if kind == 'I':
-            mag = sin_term
-        elif kind == 'II':
-            mag = sin_term ** 2  # correct discrete double integrator magnitude
+        omega_I = 2 * np.pi * f_I / sps
+        omega_II = 2 * np.pi * f_II / sps
+        sin_I = 2 * np.sin(omega_I / 2)
+        sin_II = 2 * np.sin(omega_II / 2)
 
-        if structure == 'add':
-            gain = Kp * mag
-        else:  # 'mul'
-            gain = mag
+        # Step 1: compute Ki from f_I (|I| = |P| → Ki = Kp * sin(ω_I / 2))
+        Ki = Kp * sin_I
+
+        # Step 2: evaluate I(f_II) as 1 / (1 - exp(-jω))
+        I_val = Ki / (1 - np.exp(-1j * omega_II))  # corrected
+        PI_val = Kp + I_val
+        mag_PI = abs(PI_val)
+
+        # Step 3: match II gain
+        Kii = mag_PI * (sin_II ** 2)
+
+        return np.log2(Ki), np.log2(Kii)
+
+    elif kind == 'I':
+        omega = 2 * np.pi * f_cross / sps
+        sin_term = 2 * np.sin(omega / 2)
+        return np.log2(Kp * sin_term)
 
     elif kind == 'D':
-        # Discrete derivative: (1 - z⁻¹)/(1 + z⁻¹)
-        exp_negj = np.exp(-1j * omega_d)
+        omega = 2 * np.pi * f_cross / sps
+        exp_negj = np.exp(-1j * omega)
         mag_discrete = abs((1 - exp_negj) / (1 + exp_negj))
-        mag_discrete = max(mag_discrete, 1e-12)  # prevent log2(0)
-
-        if structure == 'add':
-            gain = Kp / mag_discrete
-        else:  # 'mul'
-            raise NotImplementedError("D-term with structure='mul' not supported yet.")
-
-    return np.log2(gain)
+        mag_discrete = max(mag_discrete, 1e-12)
+        return np.log2(Kp / mag_discrete)
 
 def log2_gain_to_db(log2_gain):
     """

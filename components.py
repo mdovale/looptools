@@ -1012,7 +1012,7 @@ class ImplicitAccumulatorComponent(Component):
     """
     Continuous-time accumulator modeled in discrete-time domain.
 
-    Approximates a pure integrator with scaling factor (2pi).
+    Approximates a pure integrator with scaling factor of 2pi.
 
     Parameters
     ----------

@@ -276,6 +276,46 @@ class Component:
         _, delay = sig.group_delay((self.nume, self.deno), omega, fs=2*np.pi*self.sps)
         return delay/self.sps
     
+    def bode(self, frfr, dB=False, deg=True, wrap=True):
+        """
+        Compute the Bode magnitude and phase of the component at given frequencies.
+
+        Parameters
+        ----------
+        frfr : array_like
+            Frequency array in Hz.
+        dB : bool, optional
+            If True, return magnitude in decibels. Default is False (linear).
+        deg : bool, optional
+            If True, return phase in degrees. Default is True (radians if False).
+        wrap : bool, optional
+            If True, wrap phase to [-180, 180] deg or [-π, π] rad. Default is True.
+
+        Returns
+        -------
+        mag : ndarray
+            Magnitude response. Units depend on `dB` flag.
+        phase : ndarray
+            Phase response. Units depend on `deg` flag.
+        """
+        f = np.asarray(frfr)
+        val = self.TF(f=f)
+
+        # Compute magnitude
+        mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+
+        # Compute phase
+        phase = np.angle(val, deg=deg)
+
+        # Optionally wrap phase
+        if wrap:
+            if deg:
+                phase = (phase + 180) % 360 - 180
+            else:
+                phase = (phase + np.pi) % (2 * np.pi) - np.pi
+
+        return mag, phase
+    
     def bode_plot(self, frfr, figsize=(4, 4), title=None, dB=False, deg=True, wrap=True, axes=None, label=None, *args, **kwargs):
         """
         Plot the Bode diagram (magnitude and phase) of this component.
@@ -389,8 +429,12 @@ def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2,
     omega = 2*np.pi*f
     z = np.exp(1j*omega/com.sps)
 
-    n_nume = com.nume.size
-    n_deno = com.deno.size
+    try:
+        n_nume = com.nume.size
+        n_deno = com.deno.size
+    except AttributeError:
+        n_nume = len(com.nume)
+        n_deno = len(com.deno)
     numerator = 0
     denominator = 0
     for i, n in enumerate(com.nume):
