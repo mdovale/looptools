@@ -771,7 +771,7 @@ class MokuPIDController(Component):
         P = Component("P", self.sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
         components = [P]
 
-        if self._Fc_i is not None:
+        if self._Fc_i is not None and self._Fc_ii is None:
             self._Ki = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_i, kind='I')
             I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=P.unit)
             components.append(I)
@@ -779,12 +779,17 @@ class MokuPIDController(Component):
             self._Ki = None
 
         if self._Fc_ii is not None and self._Fc_i is not None: # We cannot have double integrator with the first-stage integrator
-            self._Kii = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_ii, kind='II')
+            i_log2, ii_log2 = lm.gain_for_crossover_frequency(Kp_log2, self.sps, [self._Fc_i, self._Fc_ii], kind='II')
+            self._Ki, self._Kii = 2 ** i_log2, 2 ** ii_log2
+            I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=P.unit)
+            components.append(I)
+
             II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=P.unit)
             if self.f_trans is not None:
                 II.TF = partial(II.TF, extrapolate=True, f_trans=self.f_trans, power=-2)
-            components[-1] += II
+            components.append(II)
         else:
+            self._Ki = None
             self._Kii = None
 
         if self._Fc_d is not None:
