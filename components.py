@@ -190,9 +190,10 @@ class LeftBitShiftComponent(Component):
 
 class LPFComponent(Component):
     """
-    Low pass filter component (first-order IIR).
+    Low pass filter component (first-order or cascaded first-order IIR).
 
-    Models a low-pass loop filter with tunable gain.
+    Models a low-pass IIR filter with tunable gain. Higher-order filters can be 
+    simulated by cascading multiple identical first-order sections.
 
     Parameters
     ----------
@@ -202,35 +203,47 @@ class LPFComponent(Component):
         Sample rate in Hz.
     Klf : float
         Log2 representation of loop gain (gain = 2^-Klf).
+    n : int, optional
+        Number of cascaded first-order sections (default is 1).
 
     Attributes
     ----------
     Klf : float
         Filter gain as 2^-Klf.
+    n : int
+        Filter order (number of cascaded stages).
     """
-    def __init__(self, name, sps, Klf):
-        self._Klf = 2.0**float(-Klf)
-        super().__init__(name, sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True))
-        self.properties = {'Klf': (lambda: self.Klf, lambda value: setattr(self, 'Klf', value))}
+    def __init__(self, name, sps, Klf, n=1):
+        self.n = int(n)
+        self._Klf = 2.0 ** float(-Klf)
+        num = np.array([self._Klf]) ** self.n
+        den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self.n
+        super().__init__(name, sps, num, den.coeffs, unit=Dimension(dimensionless=True))
+        self.properties = {
+            'Klf': (lambda: self.Klf, lambda value: setattr(self, 'Klf', value)),
+            'n': (lambda: self.n, lambda value: setattr(self, 'n', int(value))),
+        }
 
     def __deepcopy__(self, memo):
         new_obj = LPFComponent.__new__(LPFComponent)
-        new_obj.__init__(self.name, self.sps, -np.log2(self._Klf))
-        if getattr(self, '_loop', None) != None:
+        new_obj.__init__(self.name, self.sps, -np.log2(self._Klf), self.n)
+        if getattr(self, '_loop', None) is not None:
             new_obj._loop = self._loop
         return new_obj
-        
+
     @property
     def Klf(self):
         return self._Klf
 
     @Klf.setter
     def Klf(self, value):
-        self._Klf = 2**float(-value)
+        self._Klf = 2 ** float(-value)
         self.update_component()
 
     def update_component(self):
-        super().__init__(self.name, self.sps, np.array([self._Klf]), np.array([1.0, -(1.0-self._Klf)]), unit=Dimension(dimensionless=True))
+        num = np.array([self._Klf]) ** self.n
+        den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self.n
+        super().__init__(self.name, self.sps, num, den.coeffs, unit=Dimension(dimensionless=True))
 
 
 class TwoStageLPFComponent(Component):
