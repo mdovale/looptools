@@ -618,8 +618,8 @@ class MokuPIDSymbolicController(Component):
 
         Kp_log2 = lm.db_to_log2_gain(self._Kp_dB)
         self._Kp = 2 ** Kp_log2
-        self._Ki = 0.0 if self._Fc_i is None else 2 ** lm.gain_for_crossover_frequency(0.0, self.sps, self._Fc_i, kind='I', structure='add')
-        self._Kii = 0.0 if self._Fc_ii is None else 2 ** lm.gain_for_crossover_frequency(0.0, self.sps, self._Fc_ii, kind='II', structure='add')
+        self._Ki = 0.0 if self._Fc_i is None else 2 ** lm.gain_for_crossover_frequency(0.0, self.sps, self._Fc_i, kind='I')
+        self._Kii = 0.0 if self._Fc_ii is None else 2 ** lm.gain_for_crossover_frequency(0.0, self.sps, self._Fc_ii, kind='II')
 
         if self._Fc_d is not None:
             omega_d = 2 * np.pi * self._Fc_d / self.sps
@@ -636,21 +636,21 @@ class MokuPIDSymbolicController(Component):
         Kp = 2 ** Kp_log2
 
         if Fc_i is not None:
-            Ki_log2 = lm.gain_for_crossover_frequency(0.0, sps, Fc_i, kind='I', structure='add')
+            Ki_log2 = lm.gain_for_crossover_frequency(0.0, sps, Fc_i, kind='I')
         elif Ki_dB is not None:
             Ki_log2 = lm.db_to_log2_gain(Ki_dB)
         else:
             Ki_log2 = float('-inf')
 
         if Fc_ii is not None:
-            Kii_log2 = lm.gain_for_crossover_frequency(0.0, sps, Fc_ii, kind='II', structure='add')
+            Kii_log2 = lm.gain_for_crossover_frequency(0.0, sps, Fc_ii, kind='II')
         elif Kii_dB is not None:
             Kii_log2 = lm.db_to_log2_gain(Kii_dB)
         else:
             Kii_log2 = float('-inf')
 
         if Fc_d is not None:
-            Kd_log2 = lm.gain_for_crossover_frequency(0.0, sps, Fc_d, kind='D', structure='add')
+            Kd_log2 = lm.gain_for_crossover_frequency(0.0, sps, Fc_d, kind='D')
         elif Kd_dB is not None:
             Kd_log2 = lm.db_to_log2_gain(Kd_dB)
         else:
@@ -772,14 +772,14 @@ class MokuPIDController(Component):
         components = [P]
 
         if self._Fc_i is not None:
-            self._Ki = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_i, kind='I', structure='add')
+            self._Ki = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_i, kind='I')
             I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=P.unit)
             components.append(I)
         else:
             self._Ki = None
 
         if self._Fc_ii is not None and self._Fc_i is not None: # We cannot have double integrator with the first-stage integrator
-            self._Kii = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_ii, kind='II', structure='add')
+            self._Kii = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_ii, kind='II')
             II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=P.unit)
             if self.f_trans is not None:
                 II.TF = partial(II.TF, extrapolate=True, f_trans=self.f_trans, power=-2)
@@ -788,7 +788,7 @@ class MokuPIDController(Component):
             self._Kii = None
 
         if self._Fc_d is not None:
-            self._Kd = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_d, kind='D', structure='add')
+            self._Kd = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_d, kind='D')
             D = Component("D", self.sps, np.array([self._Kd, -self._Kd]), np.array([1.0, 0.0, 1.0]), unit=P.unit)
             components.append(D)
         else:
