@@ -54,11 +54,10 @@ plant = Component("Plant", sps=sps, tf=f"{w_n**2} / (s**2 + {2*zeta*w_n}*s + {w_
 sensor = Component("Sensor", sps=sps, tf="(0.391 + 0.391*z**-1) / (1 - 0.218*z**-1)", domain='z')
 
 # Compute the P-servo log2 gain from a dB value
-p_log2_gain = lm.db_to_log2_gain(60)
+p_log2_gain = lm.db_to_log2_gain(80)
 
 # Compute the integrator log2 gains for a certain cross-over frequency with the P-servo
-i_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, 50e3, kind='I', structure='add')
-ii_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, 5e3, kind='II', structure='add')
+i_log2_gain, ii_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, (1e4, 1e1), kind='II')
 
 # Define PI controller component with those gains
 controller = PIIControllerComponent("Controller", sps=sps, Kp=p_log2_gain, Ki=i_log2_gain, Kii=ii_log2_gain)
