@@ -1,5 +1,6 @@
 import numpy as np
 from functools import partial
+from scipy.signal import butter
 from looptools.component import Component
 from looptools.dimension import Dimension
 import looptools.loopmath as lm
@@ -244,6 +245,65 @@ class LPFComponent(Component):
         num = np.array([self._Klf]) ** self.n
         den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self.n
         super().__init__(self.name, self.sps, num, den.coeffs, unit=Dimension(dimensionless=True))
+
+class ButterworthLPFComponent(Component):
+    """
+    Digital Butterworth low-pass filter component (n-th order IIR).
+
+    Uses scipy's butter() design to produce a maximally flat low-pass filter.
+
+    Parameters
+    ----------
+    name : str
+        Name of the component.
+    sps : float
+        Sample rate in Hz.
+    f_c : float
+        -3 dB cutoff frequency in Hz.
+    order : int, optional
+        Filter order (default: 1). Must be >= 1.
+
+    Attributes
+    ----------
+    f_c : float
+        Cutoff frequency in Hz.
+    order : int
+        Filter order.
+    """
+
+    def __init__(self, name, sps, f_c, order=1):
+        if order < 1:
+            raise ValueError("Butterworth filter order must be >= 1.")
+        self.f_c = f_c
+        self.order = int(order)
+
+        # Design Butterworth filter in digital (normalized) domain
+        norm_cutoff = f_c / (0.5 * sps)  # Normalize to Nyquist
+        b, a = butter(N=order, Wn=norm_cutoff, btype='low', analog=False)
+
+        super().__init__(name=name, sps=sps,
+                         nume=b, deno=a,
+                         unit=Dimension(dimensionless=True))
+
+        # Allow dynamic property access
+        self.properties = {
+            'f_c': (lambda: self.f_c, self._set_fc),
+            'order': (lambda: self.order, self._set_order)
+        }
+
+    def _set_fc(self, f_c):
+        self.f_c = float(f_c)
+        self._update_tf()
+
+    def _set_order(self, order):
+        self.order = int(order)
+        self._update_tf()
+
+    def _update_tf(self):
+        norm_cutoff = self.f_c / (0.5 * self.sps)
+        b, a = butter(N=self.order, Wn=norm_cutoff, btype='low', analog=False)
+        self.nume = np.atleast_1d(b)
+        self.deno = np.atleast_1d(a)
 
 
 class TwoStageLPFComponent(Component):
