@@ -552,6 +552,47 @@ def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I'):
         mag_discrete = abs((1 - exp_negj) / (1 + exp_negj))
         mag_discrete = max(mag_discrete, 1e-12)
         return np.log2(Kp / mag_discrete)
+    
+def Klf_from_cutoff(f_c, sps, n=1):
+    """
+    Compute log2 loop gain `Klf` from cutoff frequency for an n-stage IIR LPF.
+
+    Uses numerical solver to ensure cascaded filter reaches -3 dB at `f_c`.
+
+    Parameters
+    ----------
+    f_c : float
+        Desired cutoff frequency (-3 dB point) in Hz.
+    sps : float
+        Sampling rate in Hz.
+    n : int, optional
+        Number of cascaded stages. Default is 1.
+
+    Returns
+    -------
+    Klf : float
+        Loop filter gain in log2 scale (i.e., α = 2^-Klf).
+    """
+    from scipy.optimize import root_scalar
+    T = 1.0 / sps
+    omega = 2 * np.pi * f_c * T  # Normalized digital frequency (rad/sample)
+
+    def H_mag(alpha):
+        # Magnitude of a single IIR stage at ω
+        num = alpha
+        den = np.sqrt(1 - 2*(1 - alpha)*np.cos(omega) + (1 - alpha)**2)
+        mag = num / den
+        return mag ** n
+
+    def error_fn(alpha):
+        return 20 * np.log10(H_mag(alpha)) + 3  # match -3 dB
+
+    sol = root_scalar(error_fn, bracket=[1e-6, 1.0 - 1e-6], method='bisect')
+    if not sol.converged:
+        raise RuntimeError("Failed to converge while solving for α.")
+
+    alpha = sol.root
+    return -np.log2(alpha)
 
 def log2_gain_to_db(log2_gain):
     """
