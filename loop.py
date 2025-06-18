@@ -282,21 +282,59 @@ class LOOP:
             return name.replace(" ", "").replace("-", "")
 
         def tex_fraction(tf):
-            def poly_to_tex(p):
-                def fmt(c):
-                    if abs(c) < 1e-3 or abs(c) > 1e3:
-                        base, exp = f"{c:.1e}".split("e")
-                        return f"{base}\\times 10^{{{int(exp)}}}"
-                    else:
-                        return f"{c:.3g}"
+            """
+            Generate a LaTeX math expression for a transfer function in s or z domain.
 
-                terms = [
-                    f"{fmt(c)}s^{i}" if i > 1 else
-                    f"{fmt(c)}s" if i == 1 else
-                    f"{fmt(c)}"
-                    for i, c in enumerate(reversed(p)) if abs(c) > 1e-12
-                ]
-                return " + ".join(terms) if terms else "0"
+            Parameters
+            ----------
+            tf : control.TransferFunction
+                The transfer function object to render.
+
+            Returns
+            -------
+            str
+                A LaTeX string in the form "$\\frac{numerator}{denominator}$", or None if tf is invalid.
+            """
+            def fmt(c):
+                if abs(c) < 1e-3 or abs(c) > 1e3:
+                    base, exp = f"{c:.1e}".split("e")
+                    return f"{base}\\times 10^{{{int(exp)}}}"
+                else:
+                    return f"{c:.3g}"
+
+            def poly_to_tex(p, var='s', use_zinv=False):
+                terms = []
+                N = len(p)
+                for i, c in enumerate(p):
+                    if abs(c) < 1e-12:
+                        continue
+
+                    power = N - i - 1
+                    sign = "-" if c < 0 else "+"
+                    abs_c = abs(c)
+
+                    # Skip coefficient display for ±1 unless constant term
+                    if abs_c == 1.0 and power != 0:
+                        coeff_str = ""
+                    else:
+                        coeff_str = fmt(abs_c)
+
+                    # Format variable
+                    if power == 0:
+                        term = f"{coeff_str}"
+                    elif use_zinv:
+                        term = f"{coeff_str}{var}^{{-{power}}}"
+                    elif power == 1:
+                        term = f"{coeff_str}{var}"
+                    else:
+                        term = f"{coeff_str}{var}^{{{power}}}"
+
+                    if not terms:
+                        terms.append(f"-{term}" if c < 0 else term)  # First term
+                    else:
+                        terms.append(f" {sign} {term}")
+
+                return "".join(terms) if terms else "0"
 
             try:
                 num = tf.num[0][0]
@@ -304,7 +342,18 @@ class LOOP:
             except Exception:
                 return None
 
-            return f"$\\frac{{{poly_to_tex(num)}}}{{{poly_to_tex(den)}}}$"
+            # Detect domain
+            if tf.dt is not None:
+                var = 'z'
+                use_zinv = True  # Discrete TFs rendered in z⁻¹ form
+            else:
+                var = 's'
+                use_zinv = False
+
+            num_tex = poly_to_tex(num, var, use_zinv)
+            den_tex = poly_to_tex(den, var, use_zinv)
+            return f"$\\frac{{{num_tex}}}{{{den_tex}}}$"
+        
         def render_and_display(pic):
             pic._update()
             self.pic = pic
@@ -538,6 +587,8 @@ coordinate (loop_corner) at (\\n1,\\n2);
         axes : tuple of matplotlib.axes.Axes
             The magnitude and phase axes used.
         """
+        frfr = np.asarray(frfr)
+        
         with plt.rc_context(default_rc):
             if axes is None:
                 fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=figsize, sharex=True)
