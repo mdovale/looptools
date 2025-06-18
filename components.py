@@ -305,7 +305,6 @@ class ButterworthLPFComponent(Component):
         self.nume = np.atleast_1d(b)
         self.deno = np.atleast_1d(a)
 
-
 class TwoStageLPFComponent(Component):
     """
     Cascaded low pass filter with two identical first-order stages.
