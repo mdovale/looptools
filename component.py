@@ -1,4 +1,5 @@
 from looptools.loopmath import *
+from looptools.utils import normalize_tf_string
 from looptools import dimension as dim
 from looptools.plots import default_rc
 
@@ -7,8 +8,6 @@ import copy
 import numbers
 import control
 import numpy as np
-from sympy import symbols, Poly, sympify, Symbol
-from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
 from functools import partial
 import scipy.signal as sig
 import matplotlib.pyplot as plt
@@ -16,9 +15,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from sympy import Symbol, Poly
-from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
-from looptools.utils import normalize_tf_string  # assuming you move it there
 
 class Component:
     def __init__(self, name, sps, nume=np.array([1.0]), deno=np.array([1.0]), tf=None, domain='z', unit=dim.Dimension(dimensionless=True)):
@@ -73,52 +69,82 @@ class Component:
             self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
 
         elif isinstance(tf, str):
+            import sympy as sp
+            from sympy import symbols, Poly, sympify, Symbol, together, fraction, simplify
+            from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
             tf_clean = normalize_tf_string(tf, debug=False)
 
             try:
-                # Determine variable context
+                # Determine domain variable and sympy context
                 if domain == 's':
                     if self.sps is None:
-                        raise ValueError("sps must be specified when domain='s'")
+                        raise ValueError("Sample rate `sps` must be specified for domain='s'")
                     var = Symbol('s')
-                    expr = parse_expr(tf_clean, local_dict={'s': var},
-                                      transformations=standard_transformations + (implicit_multiplication_application,))
+                    local_dict = {'s': var}
                 elif domain == 'z':
                     var = Symbol('z')
-                    expr = parse_expr(tf_clean, local_dict={'z': var},
-                                      transformations=standard_transformations + (implicit_multiplication_application,))
+                    local_dict = {'z': var}
                 else:
                     raise ValueError(f"Unrecognized domain '{domain}'. Use 's' or 'z'.")
+
+                expr = parse_expr(
+                    tf_clean,
+                    local_dict=local_dict,
+                    transformations=standard_transformations + (implicit_multiplication_application,)
+                )
+
+                # Validate free symbols
+                symbols = expr.free_symbols
+                if not symbols:
+                    # Constant TF
+                    value = float(expr)
+                    self.nume = np.array([value])
+                    self.deno = np.array([1.0])
+
+                elif len(symbols) == 1:
+                    sym = symbols.pop()
+                    if sym.name != var.name:
+                        raise ValueError(
+                            f"TF expression used symbol '{sym}', but the domain was set to '{domain}' "
+                            f"(expected variable '{var.name}').\n"
+                            f"Did you mean to use `domain='{sym.name}'` instead?"
+                        )
+
+                    # Get numerator and denominator expressions
+                    nume_expr, deno_expr = expr.as_numer_denom()
+
+                    try:
+                        # Attempt to extract polynomial coefficients
+                        nume_poly = Poly(nume_expr, var)
+                        deno_poly = Poly(deno_expr, var)
+                        nume_raw = np.array(nume_poly.all_coeffs(), dtype=float)
+                        deno_raw = np.array(deno_poly.all_coeffs(), dtype=float)
+                    except sympy.polys.polyerrors.PolynomialError as e:
+                        raise ValueError(
+                            f"TF must be a rational polynomial in '{var}'. Got:\n"
+                            f"  Numerator: {nume_expr}\n"
+                            f"  Denominator: {deno_expr}\n"
+                            f"Sympy error: {e}"
+                        )
+
+                    # Discretize if necessary
+                    if domain == 'z':
+                        self.nume = nume_raw
+                        self.deno = deno_raw
+                        self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+
+                    elif domain == 's':
+                        from scipy.signal import cont2discrete
+                        sysd = cont2discrete((nume_raw, deno_raw), dt=1 / self.sps, method='bilinear')
+                        self.nume = np.asarray(sysd[0]).flatten()
+                        self.deno = np.asarray(sysd[1]).flatten()
+                        self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
+
+                else:
+                    raise ValueError(f"Expected a single symbolic variable in TF expression, got: {symbols}")
+
             except Exception as e:
                 raise ValueError(f"Failed to parse TF expression '{tf}': {e}")
-
-            vars = list(expr.free_symbols)
-            if not vars:
-                value = float(expr)
-                self.nume = np.array([value])
-                self.deno = np.array([1.0])
-
-            elif len(vars) == 1:
-                nume_expr, deno_expr = expr.as_numer_denom()
-                nume_poly = Poly(nume_expr, var)
-                deno_poly = Poly(deno_expr, var)
-                nume_raw = np.array(nume_poly.all_coeffs(), dtype=float)
-                deno_raw = np.array(deno_poly.all_coeffs(), dtype=float)
-
-                if domain == 'z':
-                    self.nume = nume_raw
-                    self.deno = deno_raw
-                    self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-
-                elif domain == 's':
-                    from scipy.signal import cont2discrete
-                    sysd = cont2discrete((nume_raw, deno_raw), dt=1 / self.sps, method='bilinear')
-                    self.nume = np.asarray(sysd[0]).flatten()
-                    self.deno = np.asarray(sysd[1]).flatten()
-                    self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
-
-            else:
-                raise ValueError(f"Expected one symbolic variable in TF expression, found: {vars}")
 
         elif isinstance(tf, numbers.Number):
             self.nume = np.array([float(tf)])
@@ -344,10 +370,11 @@ class Component:
         axes : tuple of matplotlib.axes.Axes
             The magnitude and phase axes used.
         """
+        f = np.asarray(frfr)
+        
         with plt.rc_context(default_rc), warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
 
-            f = np.asarray(frfr)
             val = self.TF(f=f)
 
             mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
