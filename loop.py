@@ -558,7 +558,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
                 ax.set_title(title)
 
             fig.tight_layout()
-            return fig, ax
+            return ax
 
     def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label=None, label_prefix=None, legend=True, dB=False, *args, **kwargs):
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
@@ -653,7 +653,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
             fig.tight_layout()
             fig.align_ylabels()
 
-            return fig, (ax_mag, ax_phase)
+            return (ax_mag, ax_phase)
         
     def nyquist_plot(self, frfr, which='all', critical_point=False,
                     arrow_scale=1.0, arrow_frequency=None,
@@ -778,7 +778,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
             except Exception as e:
                 warnings.warn(f"tight_layout() failed: {e}")
 
-            return fig, ax
+            return ax
         
     def noise_propagation_t(self, tau, noise, unit=Dimension(dimensionless=True), _from='PD', _to=None, view=False):
         """

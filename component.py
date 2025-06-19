@@ -100,6 +100,7 @@ class Component:
                     value = float(expr)
                     self.nume = np.array([value])
                     self.deno = np.array([1.0])
+                    self.TE = control.tf(self.nume, self.deno, 1 / self.sps, name=name)
 
                 elif len(symbols) == 1:
                     sym = symbols.pop()
@@ -158,7 +159,6 @@ class Component:
             self.nume = np.around(nume, 16)
             self.deno = np.around(deno, 16)
             self.TE = copy.deepcopy(tf)
-            self.TE.name = name
 
         elif isinstance(tf, (tuple, list)) and len(tf) == 2:
             self.nume = np.array(tf[0], dtype=float)
@@ -420,7 +420,7 @@ class Component:
             fig.tight_layout()
             fig.align_ylabels()
 
-            return fig, (ax_mag, ax_phase)
+            return (ax_mag, ax_phase)
 
 def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
     """

@@ -1,9 +1,187 @@
 import copy
 import numpy as np
+from itertools import product
 from scipy.optimize import minimize
 from looptools.loopmath import *
 import logging
 logger = logging.getLogger(__name__)
+
+
+def new_parameter_sweep_1d(_loop, prop_name, values, frequencies, deg=True,
+                       unwrap_phase=False, interpolate=False):
+    """
+    Sweep a single tunable property of a LOOP object and compute stability metrics.
+
+    Parameters
+    ----------
+    _loop : LOOP
+        The control loop object to modify and analyze. It is modified in-place.
+    prop_name : str
+        Name of the property to sweep (must be in `loop.property_list`).
+    values : array_like
+        Values to assign to the specified property for each sweep iteration.
+    frequencies : array_like
+        Fourier frequency array (Hz) over which to evaluate the loop transfer functions.
+    deg : bool, optional
+        If True, report phase margin in degrees (default). If False, use radians.
+    unwrap_phase : bool, optional
+        If True, unwrap phase before computing phase margin.
+    interpolate : bool, optional
+        If True, interpolate TFs to refine unity gain crossing.
+
+    Returns
+    -------
+    result : dict
+        Dictionary with the following keys:
+            - 'parameter_name' : str, the swept property name
+            - 'parameter_values' : ndarray, sweep values
+            - 'frequencies' : ndarray, Fourier frequencies
+            - 'metrics' : dict, with:
+                - 'ugf' : ndarray of unity gain frequencies
+                - 'phase_margin' : ndarray of phase margins
+            - 'open_loop' : dict, with:
+                - 'magnitude' : ndarray of shape (N, F)
+                - 'phase' : ndarray of shape (N, F)
+
+    Raises
+    ------
+    ValueError
+        If the property name is not found in loop.property_list
+    """
+    loop = copy.deepcopy(_loop)
+
+    values = np.asarray(values)
+    frfr = np.asarray(frequencies)
+    N, F = len(values), len(frfr)
+
+    if prop_name not in loop.property_list:
+        raise ValueError(f"Property '{prop_name}' not found in loop.property_list")
+
+    mag_array = np.empty((N, F))
+    phase_array = np.empty((N, F))
+    ugf_array = np.empty(N)
+    pm_array = np.empty(N)
+
+    for i, val in enumerate(values):
+        setattr(loop, prop_name, val)
+        tf = loop.Gf(frfr)
+        mag = np.abs(tf)
+        phase = np.angle(tf, deg=False)
+
+        if unwrap_phase:
+            phase = np.unwrap(phase)
+        if deg:
+            phase_deg = np.rad2deg(phase)
+            phase_use = phase_deg
+        else:
+            phase_use = phase
+
+        mag_array[i, :] = mag
+        phase_array[i, :] = phase_use
+
+        ugf, pm = get_margin(tf, frfr, deg=deg, unwrap_phase=unwrap_phase, interpolate=interpolate)
+        ugf_array[i] = ugf
+        pm_array[i] = pm
+
+    return {
+        "parameter_name": prop_name,
+        "parameter_values": values,
+        "frequencies": frfr,
+        "metrics": {
+            "ugf": ugf_array,
+            "phase_margin": pm_array,
+        },
+        "open_loop": {
+            "magnitude": mag_array,
+            "phase": phase_array,
+        },
+    }
+
+def parameter_sweep_nd(loop, param_grid, frequencies, deg=True,
+                       unwrap_phase=False, interpolate=False):
+    """
+    Sweep multiple LOOP parameters over an N-dimensional grid and analyze stability.
+
+    Parameters
+    ----------
+    loop : LOOP
+        Loop object to modify and evaluate. Modified in-place.
+    param_grid : dict of str -> array_like
+        Dictionary mapping property names (must be in loop.property_list)
+        to arrays of values to sweep.
+    frequencies : array_like
+        Frequencies (Hz) over which to evaluate the loop.
+    deg : bool, optional
+        Whether to compute phase margin in degrees.
+    unwrap_phase : bool, optional
+        Whether to unwrap phase before computing margin.
+    interpolate : bool, optional
+        Whether to interpolate TFs before computing margins.
+
+    Returns
+    -------
+    result : dict
+        Dictionary containing:
+            - 'parameter_names' : list of parameter names
+            - 'parameter_grid' : dict of broadcasted parameter arrays
+            - 'frequencies' : ndarray of shape (F,)
+            - 'metrics' : dict with:
+                - 'ugf' : ndarray of shape (...,)
+                - 'phase_margin' : ndarray of shape (...,)
+            - 'open_loop' : dict with:
+                - 'magnitude' : ndarray of shape (..., F)
+                - 'phase' : ndarray of shape (..., F)
+    """
+    param_names = list(param_grid.keys())
+    sweep_axes = [np.asarray(param_grid[k]) for k in param_names]
+    mesh = np.meshgrid(*sweep_axes, indexing='ij')
+    shape = mesh[0].shape
+    frfr = np.asarray(frequencies)
+    F = len(frfr)
+
+    # Preallocate result arrays
+    ugf_arr = np.empty(shape)
+    pm_arr = np.empty(shape)
+    mag_arr = np.empty(shape + (F,))
+    phase_arr = np.empty(shape + (F,))
+
+    it = np.ndindex(shape)
+    for idx in it:
+        for i, name in enumerate(param_names):
+            val = mesh[i][idx]
+            if name not in loop.property_list:
+                raise ValueError(f"Property '{name}' not found in loop.property_list")
+            setattr(loop, name, val)
+
+        tf = loop.L(frfr)
+        mag = np.abs(tf)
+        phase_rad = np.angle(tf, deg=False)
+        if unwrap_phase:
+            phase_rad = np.unwrap(phase_rad)
+        phase = np.rad2deg(phase_rad) if deg else phase_rad
+
+        mag_arr[idx] = mag
+        phase_arr[idx] = phase
+
+        ugf, pm = get_margin(tf, frfr, deg=deg,
+                             unwrap_phase=unwrap_phase,
+                             interpolate=interpolate)
+        ugf_arr[idx] = ugf
+        pm_arr[idx] = pm
+
+    return {
+        "parameter_names": param_names,
+        "parameter_grid": {name: mesh[i] for i, name in enumerate(param_names)},
+        "frequencies": frfr,
+        "metrics": {
+            "ugf": ugf_arr,
+            "phase_margin": pm_arr,
+        },
+        "open_loop": {
+            "magnitude": mag_arr,
+            "phase": phase_arr,
+        }
+    }
 
 
 def parameter_sweep_1d(frfr, noise, loop, comp, sweep, space, _from, _to, isTF=True):

@@ -1,6 +1,7 @@
 import numpy as np
 from functools import singledispatch
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 from looptools import dsp
 
 def loop_crossover(loop1, loop2, frfr):
@@ -246,14 +247,12 @@ def get_margin(tf, f, dB=False, deg=True):
     return ugf, margin
 
 @get_margin.register(np.ndarray)
-def _(tf, f, deg=True, unwrap_phase=False, interpolate=False):
+def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
     """
     Compute the phase margin from a complex-valued transfer function array.
 
-    The phase margin is evaluated at the frequency where the transfer function's
-    magnitude is closest to unity (|TF| ≈ 1). This overload handles full complex
-    transfer function arrays and supports optional interpolation and phase unwrapping
-    to improve numerical stability and accuracy.
+    The phase margin is evaluated at the unity gain frequency (UGF), where the 
+    transfer function's magnitude is 1.
 
     Parameters
     ----------
@@ -262,79 +261,119 @@ def _(tf, f, deg=True, unwrap_phase=False, interpolate=False):
     f : array_like
         Frequencies (Hz) corresponding to the values in `tf`.
     deg : bool, optional
-        If True, return phase margin in degrees. If False, return in radians. Default is True.
+        If True, return phase margin in degrees. If False, return in radians. 
+        Default is True.
     unwrap_phase : bool, optional
-        If True, unwrap the phase before evaluating margin. This avoids phase discontinuities
-        near ±180° and is recommended for systems with steep phase roll-off. Default is False.
+        If True (default), unwrap the phase before evaluating the margin. 
+        This is crucial for a correct margin calculation in most systems, as it 
+        ensures phase continuity across the -180° boundary. Default is True.
     interpolate : bool, optional
-        If True, interpolate the magnitude and phase onto a dense logarithmic grid to improve
-        resolution around the unity gain frequency. Default is False.
+        If True (default), interpolate the magnitude and phase to find a more 
+        precise unity gain frequency. If False, the nearest point in the data is 
+        used. Default is True.
 
     Returns
     -------
     ugf : float
-        Unity gain frequency (Hz), where |TF| ≈ 1.
+        Unity gain frequency (Hz), where |TF| = 1. Returns NaN if the gain
+        never crosses unity.
     margin : float
         Phase margin at the unity gain frequency (in degrees or radians).
+        Returns NaN if the gain never crosses unity.
 
     Notes
     -----
-    - NaNs in the transfer function are removed prior to processing.
-    - By default, phase is wrapped in the interval [−π, π] or [−180°, 180°].
-      This can lead to apparent discontinuities near ±180°, especially problematic
-      near the unity gain frequency. Setting `unwrap_phase=True` applies `np.unwrap`
-      to ensure phase continuity.
-    - Interpolation is disabled by default to preserve the original behavior.
-      Enabling it may yield more accurate margins for sparse frequency grids.
-
-    See Also
-    --------
-    get_gain_margin : Compute the gain margin at the phase crossover frequency.
-    get_margin : Generic overload accepting magnitude/phase pairs.
+    - The phase margin is defined as: PM = Phase(at UGF) + 180°. A positive
+      margin indicates stability, while a negative margin indicates instability.
+    - NaNs in the input transfer function are removed before processing.
     """
-    import numpy as np
-    from scipy.interpolate import interp1d
-
     tf = np.asarray(tf)
     f = np.asarray(f)
 
     # Remove NaNs in transfer function
     valid = ~np.isnan(tf)
-    tfnew = tf[valid]
+    if not np.any(valid):
+        return np.nan, np.nan
+        
     fnew = f[valid]
+    tfnew = tf[valid]
+    
+    if len(fnew) < 2: # Cannot interpolate with fewer than 2 points
+        interpolate = False
 
     mag = np.abs(tfnew)
 
-    # Compute phase in radians, unwrap if requested
-    phase_rad = np.angle(tfnew, deg=False)
+    # Find the unity-gain frequency (UGF)
+    # Check if the magnitude crosses 1 at all.
+    # It crosses if there is at least one point > 1 and one point < 1.
+    if not (np.any(mag > 1) and np.any(mag < 1)):
+        # Gain never crosses 1, phase margin is not well-defined.
+        # We can find the point closest to 1, but it's often better to return NaN.
+        ugf_idx = np.argmin(np.abs(mag - 1))
+        # Optional: you could return the margin at this point, but it's ambiguous.
+        # For this implementation, we state it's undefined.
+        # A perfectly-gained system (mag all 1) would be an exception.
+        if not np.all(np.isclose(mag, 1)):
+             return np.nan, np.nan
+
+    # Compute phase in radians
+    phase_rad = np.angle(tfnew)
     if unwrap_phase:
         phase_rad = np.unwrap(phase_rad)
+
     if deg:
         phase = np.rad2deg(phase_rad)
     else:
         phase = phase_rad
 
     if interpolate:
-        # Interpolate magnitude and phase onto a fine frequency grid
-        fine_f = np.logspace(np.log10(fnew[0]), np.log10(fnew[-1]), 10000)
-        mag_interp = interp1d(fnew, mag, kind="linear", bounds_error=False, fill_value="extrapolate")
-        phase_interp = interp1d(fnew, phase, kind="linear", bounds_error=False, fill_value="extrapolate")
+        # Interpolate to find the precise UGF
+        # Use linear interpolation on log-frequency for standard Bode plot behavior
+        log_f = np.log10(fnew)
+        mag_interp = interp1d(log_f, mag, kind="linear", bounds_error=False, fill_value="extrapolate")
+        phase_interp = interp1d(log_f, phase, kind="linear", bounds_error=False, fill_value="extrapolate")
 
-        fine_mag = mag_interp(fine_f)
-        ugf_index = np.argmin(np.abs(fine_mag - 1))
-        ugf = fine_f[ugf_index]
-        phase_at_ugf = phase_interp(ugf)
+        # To find the UGF, we find the root of mag(f) - 1 = 0.
+        # We can do this by finding where log10(mag) crosses 0.
+        log_mag_interp = interp1d(log_f, np.log10(mag), kind="linear")
+        
+        # Find all crossings by looking at sign changes
+        signs = np.sign(np.log10(mag)[:-1] * np.log10(mag)[1:])
+        crossing_indices = np.where(signs < 0)[0]
+        
+        if len(crossing_indices) == 0:
+             # This can happen if the only crossing is at the very edge, handle robustly
+             # Or if the check at the top failed to catch a weird case
+             ugf_idx = np.argmin(np.abs(mag - 1))
+             ugf = fnew[ugf_idx]
+             phase_at_ugf = phase[ugf_idx]
+        else:
+            # For phase margin, we care about the *first* time gain crosses 1 from above
+            from scipy.optimize import brentq
+            try:
+                # Find the root of log10(mag) = 0, which is where mag = 1
+                log_ugf = brentq(log_mag_interp, log_f[crossing_indices[0]], log_f[crossing_indices[0]+1])
+                ugf = 10**log_ugf
+                phase_at_ugf = phase_interp(log_ugf)
+            except (ValueError, RuntimeError):
+                # Fallback if root finding fails
+                ugf_idx = np.argmin(np.abs(mag - 1))
+                ugf = fnew[ugf_idx]
+                phase_at_ugf = phase[ugf_idx]
+
     else:
         # Use the nearest point to unity gain
-        index = np.argmin(np.abs(mag - 1))
-        ugf = fnew[index]
-        phase_at_ugf = phase[index]
+        ugf_idx = np.argmin(np.abs(mag - 1))
+        ugf = fnew[ugf_idx]
+        phase_at_ugf = phase[ugf_idx]
 
-    # Compute phase margin
+    # --- CORRECTED PHASE MARGIN CALCULATION ---
+    # The formula is simply Phase + 180 (or pi).
+    # This is correct ONLY if the phase is unwrapped.
     if deg:
-        margin = 180 + phase_at_ugf
+        margin = phase_at_ugf + 180.0
     else:
-        margin = np.pi + phase_at_ugf
+        margin = phase_at_ugf + np.pi
 
     return ugf, margin
 
