@@ -1,178 +1,180 @@
+"""
+This module provides tools for control loop analysis, including N-dimensional
+parameter sweeps and optimization, with support for parallel processing.
+"""
 import copy
-import numpy as np
-from itertools import product
-from scipy.optimize import minimize
-from looptools.loopmath import *
 import logging
+import warnings
+from contextlib import contextmanager
+from itertools import product
+from typing import Any, Dict, List, Tuple, Callable, Sequence
+
+import numpy as np
+from joblib import Parallel, delayed
+from joblib.parallel import BatchCompletionCallBack
+from scipy.optimize import minimize, OptimizeResult
+from tqdm.auto import tqdm
+
+# Assuming these are from a library this file is part of.
+# If these are not available, placeholders would be needed.
+from looptools.loopmath import get_margin, loop_crossover
+
+# Placeholder for the main loop object type for type hinting
+# from my_loop_library import LOOP
+LOOP = Any
+
 logger = logging.getLogger(__name__)
 
+# --- Parallel Progress Bar Utility ---
 
-def new_parameter_sweep_1d(_loop, prop_name, values, frequencies, deg=True,
-                       unwrap_phase=False, interpolate=False):
+@contextmanager
+def tqdm_joblib(tqdm_object: tqdm) -> tqdm:
     """
-    Sweep a single tunable property of a LOOP object and compute stability metrics.
-
-    Parameters
-    ----------
-    _loop : LOOP
-        The control loop object to modify and analyze. It is modified in-place.
-    prop_name : str
-        Name of the property to sweep (must be in `loop.property_list`).
-    values : array_like
-        Values to assign to the specified property for each sweep iteration.
-    frequencies : array_like
-        Fourier frequency array (Hz) over which to evaluate the loop transfer functions.
-    deg : bool, optional
-        If True, report phase margin in degrees (default). If False, use radians.
-    unwrap_phase : bool, optional
-        If True, unwrap phase before computing phase margin.
-    interpolate : bool, optional
-        If True, interpolate TFs to refine unity gain crossing.
-
-    Returns
-    -------
-    result : dict
-        Dictionary with the following keys:
-            - 'parameter_name' : str, the swept property name
-            - 'parameter_values' : ndarray, sweep values
-            - 'frequencies' : ndarray, Fourier frequencies
-            - 'metrics' : dict, with:
-                - 'ugf' : ndarray of unity gain frequencies
-                - 'phase_margin' : ndarray of phase margins
-            - 'open_loop' : dict, with:
-                - 'magnitude' : ndarray of shape (N, F)
-                - 'phase' : ndarray of shape (N, F)
-
-    Raises
-    ------
-    ValueError
-        If the property name is not found in loop.property_list
+    Context manager to patch joblib to report progress into a tqdm bar.
+    Note: Newer versions of joblib may have built-in support for tqdm,
+    but this remains a reliable method.
     """
-    loop = copy.deepcopy(_loop)
+    class TqdmBatchCompletionCallback(BatchCompletionCallBack):
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
 
-    values = np.asarray(values)
-    frfr = np.asarray(frequencies)
-    N, F = len(values), len(frfr)
+    old_callback = Parallel.__init__.__globals__['BatchCompletionCallBack']
+    Parallel.__init__.__globals__['BatchCompletionCallBack'] = TqdmBatchCompletionCallback
+    try:
+        yield tqdm_object
+    finally:
+        Parallel.__init__.__globals__['BatchCompletionCallBack'] = old_callback
+        tqdm_object.close()
 
-    if prop_name not in loop.property_list:
-        raise ValueError(f"Property '{prop_name}' not found in loop.property_list")
+# --- Core Sweep Logic ---
 
-    mag_array = np.empty((N, F))
-    phase_array = np.empty((N, F))
-    ugf_array = np.empty(N)
-    pm_array = np.empty(N)
-
-    for i, val in enumerate(values):
-        setattr(loop, prop_name, val)
-        tf = loop.Gf(frfr)
-        mag = np.abs(tf)
-        phase = np.angle(tf, deg=False)
-
-        if unwrap_phase:
-            phase = np.unwrap(phase)
-        if deg:
-            phase_deg = np.rad2deg(phase)
-            phase_use = phase_deg
-        else:
-            phase_use = phase
-
-        mag_array[i, :] = mag
-        phase_array[i, :] = phase_use
-
-        ugf, pm = get_margin(tf, frfr, deg=deg, unwrap_phase=unwrap_phase, interpolate=interpolate)
-        ugf_array[i] = ugf
-        pm_array[i] = pm
-
-    return {
-        "parameter_name": prop_name,
-        "parameter_values": values,
-        "frequencies": frfr,
-        "metrics": {
-            "ugf": ugf_array,
-            "phase_margin": pm_array,
-        },
-        "open_loop": {
-            "magnitude": mag_array,
-            "phase": phase_array,
-        },
-    }
-
-def parameter_sweep_nd(loop, param_grid, frequencies, deg=True,
-                       unwrap_phase=False, interpolate=False):
+def _calculate_point(
+    loop_prototype: LOOP,
+    params_to_set: Dict[str, Any],
+    frequencies: np.ndarray,
+    deg: bool,
+    unwrap_phase: bool,
+    interpolate: bool,
+) -> Tuple[float, float, np.ndarray, np.ndarray]:
     """
-    Sweep multiple LOOP parameters over an N-dimensional grid and analyze stability.
+    Worker function for parallel sweep. Calculates metrics for one parameter point.
+
+    This function creates a local, independent copy of the loop object to
+    ensure thread/process safety.
+    """
+    loop = copy.deepcopy(loop_prototype)
+
+    for name, val in params_to_set.items():
+        setattr(loop, name, val)
+
+    tf = loop.Gf(frequencies)
+    mag = np.abs(tf)
+    phase_rad = np.angle(tf, deg=False)
+    if unwrap_phase:
+        phase_rad = np.unwrap(phase_rad)
+    
+    phase = np.rad2deg(phase_rad) if deg else phase_rad
+
+    ugf, pm = get_margin(
+        tf, frequencies, deg=deg, unwrap_phase=unwrap_phase, interpolate=interpolate
+    )
+
+    return ugf, pm, mag, phase
+
+# --- Modern Parameter Sweep Functions ---
+
+def parameter_sweep_nd(
+    loop: LOOP,
+    param_grid: Dict[str, Sequence],
+    frequencies: Sequence,
+    deg: bool = True,
+    unwrap_phase: bool = False,
+    interpolate: bool = False,
+    n_jobs: int = -1,
+) -> Dict[str, Any]:
+    """
+    Performs an N-dimensional parameter sweep in parallel.
+
+    This function can be used to analyze loop stability and performance over a 
+    grid of parameters, using joblib for parallel computation to improve performance.
 
     Parameters
     ----------
     loop : LOOP
-        Loop object to modify and evaluate. Modified in-place.
-    param_grid : dict of str -> array_like
-        Dictionary mapping property names (must be in loop.property_list)
-        to arrays of values to sweep.
+        The loop object to use as a template. It is NOT modified in-place.
+    param_grid : dict
+        Maps property names (str) to arrays of values to sweep.
     frequencies : array_like
-        Frequencies (Hz) over which to evaluate the loop.
+        Frequencies (Hz) for evaluating the loop's transfer function.
     deg : bool, optional
-        Whether to compute phase margin in degrees.
+        If True, compute phase and margin in degrees. Defaults to True.
     unwrap_phase : bool, optional
-        Whether to unwrap phase before computing margin.
+        If True, unwrap phase before computing margin. Defaults to False.
     interpolate : bool, optional
-        Whether to interpolate TFs before computing margins.
+        If True, interpolate TF to refine margin calculations. Defaults to False.
+    n_jobs : int, optional
+        Number of parallel jobs. -1 uses all cores. 1 disables parallelism.
+        Defaults to -1.
 
     Returns
     -------
-    result : dict
-        Dictionary containing:
-            - 'parameter_names' : list of parameter names
-            - 'parameter_grid' : dict of broadcasted parameter arrays
-            - 'frequencies' : ndarray of shape (F,)
-            - 'metrics' : dict with:
-                - 'ugf' : ndarray of shape (...,)
-                - 'phase_margin' : ndarray of shape (...,)
-            - 'open_loop' : dict with:
-                - 'magnitude' : ndarray of shape (..., F)
-                - 'phase' : ndarray of shape (..., F)
+    dict
+        A dictionary containing the sweep results, including parameter grids,
+        frequencies, and calculated metrics (UGF, phase margin, magnitude, phase).
+    
+    Raises
+    ------
+    ValueError
+        If a parameter name in `param_grid` is not a valid property of the loop.
     """
+    # Validate parameter names before starting expensive computation
+    for name in param_grid.keys():
+        if not hasattr(loop, name):
+            raise ValueError(f"Property '{name}' not found on the provided loop object.")
+
     param_names = list(param_grid.keys())
     sweep_axes = [np.asarray(param_grid[k]) for k in param_names]
     mesh = np.meshgrid(*sweep_axes, indexing='ij')
     shape = mesh[0].shape
-    frfr = np.asarray(frequencies)
-    F = len(frfr)
+    freqs_arr = np.asarray(frequencies)
+    num_freqs = len(freqs_arr)
+    total_points = np.prod(shape)
 
-    # Preallocate result arrays
-    ugf_arr = np.empty(shape)
-    pm_arr = np.empty(shape)
-    mag_arr = np.empty(shape + (F,))
-    phase_arr = np.empty(shape + (F,))
+    # Create a flat list of tasks (dictionaries of parameter settings)
+    param_values_flat = [m.flatten() for m in mesh]
+    tasks = [dict(zip(param_names, p_set)) for p_set in zip(*param_values_flat)]
+    
+    cores_str = "all available" if n_jobs == -1 else n_jobs
+    logger.info(
+        f"Starting parallel sweep over {total_points} points using {cores_str} cores."
+    )
+    
+    # Run tasks in parallel with a progress bar
+    # The 'loop' object is deep-copied by the worker, not here, to ensure
+    # safety regardless of the joblib backend (threading vs. multiprocessing).
+    with tqdm_joblib(tqdm(total=total_points, desc="Sweeping Parameters")) as progress_bar:
+        results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(_calculate_point)(
+                loop, params, freqs_arr, deg, unwrap_phase, interpolate
+            ) for params in tasks
+        )
 
-    it = np.ndindex(shape)
-    for idx in it:
-        for i, name in enumerate(param_names):
-            val = mesh[i][idx]
-            if name not in loop.property_list:
-                raise ValueError(f"Property '{name}' not found in loop.property_list")
-            setattr(loop, name, val)
+    # --- Collect and reshape results ---
+    ugf_flat, pm_flat, mag_flat, phase_flat = zip(*results)
 
-        tf = loop.L(frfr)
-        mag = np.abs(tf)
-        phase_rad = np.angle(tf, deg=False)
-        if unwrap_phase:
-            phase_rad = np.unwrap(phase_rad)
-        phase = np.rad2deg(phase_rad) if deg else phase_rad
-
-        mag_arr[idx] = mag
-        phase_arr[idx] = phase
-
-        ugf, pm = get_margin(tf, frfr, deg=deg,
-                             unwrap_phase=unwrap_phase,
-                             interpolate=interpolate)
-        ugf_arr[idx] = ugf
-        pm_arr[idx] = pm
+    # Reshape scalar metrics to the N-D grid shape
+    ugf_arr = np.array(ugf_flat).reshape(shape)
+    pm_arr = np.array(pm_flat).reshape(shape)
+    
+    # Reshape vector metrics (per frequency) to N-D grid shape + frequency dim
+    mag_arr = np.array(mag_flat).reshape(shape + (num_freqs,))
+    phase_arr = np.array(phase_flat).reshape(shape + (num_freqs,))
 
     return {
         "parameter_names": param_names,
         "parameter_grid": {name: mesh[i] for i, name in enumerate(param_names)},
-        "frequencies": frfr,
+        "frequencies": freqs_arr,
         "metrics": {
             "ugf": ugf_arr,
             "phase_margin": pm_arr,
@@ -184,195 +186,215 @@ def parameter_sweep_nd(loop, param_grid, frequencies, deg=True,
     }
 
 
-def parameter_sweep_1d(frfr, noise, loop, comp, sweep, space, _from, _to, isTF=True):
+def parameter_sweep_1d(
+    loop: LOOP,
+    prop_name: str,
+    values: Sequence,
+    frequencies: Sequence,
+    deg: bool = True,
+    unwrap_phase: bool = False,
+    interpolate: bool = False
+) -> Dict[str, Any]:
     """
-    Sweep a component parameter and evaluate its impact on loop error and performance.
+    Sweeps a single parameter and computes stability metrics.
 
-    This function performs a 1D parameter sweep over a specified component property
-    in a control loop, analyzing how it affects the unity gain frequency (UGF),
-    phase margin, and noise contribution to loop error. It returns key performance
-    metrics as functions of the swept parameter.
+    This is a convenience wrapper around `parameter_sweep_nd` for 1D sweeps.
 
     Parameters
     ----------
-    frfr : array_like
-        Array of Fourier frequencies (Hz) for transfer function and noise evaluation.
-    noise : array_like
-        Noise ASD (amplitude spectral density), assumed to be in rad/√Hz.
     loop : LOOP
-        An instance of the LOOP class representing the full control loop configuration.
-    comp : str
-        Name of the component within the loop whose parameter will be swept.
-    sweep : str
-        Name of the parameter (property) within the component to sweep.
-    space : array_like
-        Array of values to sweep through for the chosen parameter.
-    _from : str
-        Name of the starting component for transfer function computation.
-    _to : str
-        Name of the ending component for transfer function computation.
-    isTF : bool, optional
-        If True, use the loop's `Gf(f)` method (frequency-domain transfer function).
-        If False, use the loop's internal `Gc.bode()` computation. Default is True.
+        The loop object to analyze. It is NOT modified in-place.
+    prop_name : str
+        Name of the property to sweep.
+    values : array_like
+        Values to assign to the property.
+    frequencies : array_like
+        Frequencies (Hz) for evaluation.
+    deg : bool, optional
+        If True, use degrees for phase. Defaults to True.
+    unwrap_phase : bool, optional
+        If True, unwrap phase. Defaults to False.
+    interpolate : bool, optional
+        If True, interpolate for margin calculation. Defaults to False.
 
     Returns
     -------
-    ugf : ndarray
-        Array of unity gain frequencies (Hz) obtained for each parameter value.
-    margin : ndarray
-        Array of phase margins (in degrees) corresponding to each UGF.
-    rms : ndarray
-        Array of RMS noise contributions computed from the propagated ASD.
-    asd : ndarray
-        2D array of propagated noise ASDs (rad/√Hz), shape = (len(frfr), len(space)).
-
-    Notes
-    -----
-    - The loop is deep-copied before modification to preserve the original.
-    - The function assumes that the component's parameter is exposed via
-      a `.properties` dictionary with (value, setter) pairs.
-    - Use this function to evaluate loop robustness and sensitivity to component tuning,
-      such as filter corner frequencies, actuator gains, or delay elements.
-
-    Raises
-    ------
-    AssertionError
-        If the component or property name does not exist in the loop.
-        If `_from` or `_to` are not valid loop components.
-
-    See Also
-    --------
-    looptools.noise_propagation_asd : Computes noise propagation in the loop.
-    get_margin : Estimates phase margin from transfer function.
-    LOOP.Gf : Transfer function evaluation between components.
-    LOOP.Gc.bode : Frequency response evaluation if `isTF=False`.
+    dict
+        A dictionary with sweep results in a 1D-friendly format.
     """
-    ugf = np.array([])
-    margin = np.array([])
-    rms = np.array([])
-    asd = []
+    param_grid = {prop_name: values}
+    
+    # Run the N-D sweep with n_jobs=1 (sequential) for a single-threaded 1D sweep
+    results_nd = parameter_sweep_nd(
+        loop, param_grid, frequencies, deg, unwrap_phase, interpolate, n_jobs=1
+    )
 
+    # Unpack and format results for the 1D case
+    return {
+        "parameter_name": prop_name,
+        "parameter_values": np.asarray(values),
+        "frequencies": results_nd["frequencies"],
+        "metrics": {
+            "ugf": results_nd["metrics"]["ugf"],
+            "phase_margin": results_nd["metrics"]["phase_margin"],
+        },
+        "open_loop": {
+            "magnitude": results_nd["open_loop"]["magnitude"],
+            "phase": results_nd["open_loop"]["phase"],
+        },
+    }
+
+# --- Deprecated and Legacy Functions ---
+
+def old_parameter_sweep_1d(
+    loop: LOOP,
+    frfr: Sequence,
+    noise: Sequence,
+    comp: str,
+    sweep: str,
+    space: Sequence,
+    tf_from: str,
+    tf_to: str,
+    isTF: bool = True
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    [DEPRECATED] Sweep a component parameter and evaluate loop error and performance.
+
+    This function is preserved for legacy use cases but `parameter_sweep_1d` or
+    `parameter_sweep_nd` are recommended for new development.
+
+    This sweep is inefficient and uses an outdated, error-prone API.
+    """
+    warnings.warn(
+        "`old_parameter_sweep_1d` is deprecated. Use `parameter_sweep_1d` or "
+        "`parameter_sweep_nd` for better performance and a cleaner API.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    
     _loop = copy.deepcopy(loop)
+    
+    if comp not in _loop.components_dict:
+        raise ValueError(f"Component '{comp}' not found in the loop.")
+    component = _loop.components_dict[comp]
+    if sweep not in component.properties:
+        raise ValueError(f"Property '{sweep}' not found in component '{comp}'.")
+    if tf_from not in _loop.components_dict:
+        raise ValueError(f"Component '{tf_from}' not found in the loop.")
+    if tf_to not in _loop.components_dict:
+        raise ValueError(f"Component '{tf_to}' not found in the loop.")
 
-    assert comp in _loop.components_dict, logger.error("Cannot find this component in the loop")
-    assert sweep in _loop.components_dict[comp].properties, logger.error("Cannot find this component property")
-    if _from is not None:
-        assert _from in _loop.components_dict, logger.error(f"Cannot find the {_from} component in the loop")
-    if _to is not None:
-        assert _to in _loop.components_dict, logger.error(f"Cannot find the {_to} component in the loop")
+    fsweep = component.properties[sweep][1]
+    
+    # Pre-allocate arrays for efficiency
+    N = len(space)
+    F = len(frfr)
+    ugf = np.empty(N)
+    margin = np.empty(N)
+    rms = np.empty(N)
+    asd = np.empty((F, N))  # Shape (freqs, params) for direct column assignment
+    
+    freq_arr = np.asarray(frfr)
 
-    fsweep = _loop.components_dict[comp].properties[sweep][1]
-
-    for p in space:
+    for i, p in enumerate(tqdm(space, desc=f"Sweeping {comp}.{sweep}")):
         fsweep(p)
         if isTF:
-            ugf_tmp, margin_tmp = get_margin(_loop.Gf(f=frfr), frfr, deg=True)
+            tf = _loop.Gf(f=freq_arr)
+            ugf_tmp, margin_tmp = get_margin(tf, freq_arr, deg=True)
         else:
-            _,ugf_tmp, margin_tmp = _loop.Gc.bode(2*np.pi*frfr)
-        asd_tmp,_,_,rms_tmp = _loop.noise_propagation_asd(frfr, noise, _from=_from, _to=_to, isTF=isTF, view=False)
+            _, ugf_tmp, margin_tmp = _loop.Gc.bode(2 * np.pi * freq_arr)
+        
+        asd_tmp, _, _, rms_tmp = _loop.noise_propagation_asd(
+            freq_arr, noise, _from=tf_from, _to=to_to, isTF=isTF, view=False
+        )
+        
+        ugf[i] = ugf_tmp
+        margin[i] = margin_tmp
+        rms[i] = rms_tmp
+        asd[:, i] = asd_tmp
 
-        ugf = np.append(ugf, ugf_tmp)
-        margin = np.append(margin, margin_tmp)
-        rms = np.append(rms, rms_tmp)
-        asd.append(asd_tmp)
-
-    return ugf, margin, rms, np.array(asd).T
+    return ugf, margin, rms, asd
 
 
-def loop_crossover_optimizer(loop1, loop2, frfr, desired_f_cross, meta, method="Nelder-Mead", options={"maxiter": 1000}):
+def loop_crossover_optimizer(
+    loop1: LOOP,
+    loop2: LOOP,
+    frfr: Sequence,
+    desired_f_cross: float,
+    meta: Dict[str, Tuple],
+    method: str = "Nelder-Mead",
+    options: Dict = {"maxiter": 1000},
+) -> Tuple[OptimizeResult, LOOP]:
     """
-    Optimize parameters in `loop1` to match the crossover frequency of `loop2`.
-
-    This function tunes selected attributes of `loop1` to minimize the squared error between
-    its crossover frequency and a desired target, based on the difference with `loop2`.
-    The optimization uses SciPy's `minimize` with configurable method and options.
+    Optimizes `loop1` parameters to match the crossover frequency of `loop2`.
 
     Parameters
     ----------
-    loop1 : object
-        Control loop object whose attributes will be optimized.
-    loop2 : object
-        Reference control loop to match crossover behavior against.
+    loop1 : LOOP
+        The loop to optimize. A deep copy is used, so the original is not modified.
+    loop2 : LOOP
+        The reference loop for crossover comparison.
     frfr : array_like
-        Frequency grid (Hz) over which crossover comparison is performed.
+        Frequency grid (Hz) for evaluation.
     desired_f_cross : float
-        Desired crossover frequency (Hz) to match between the two loops.
+        Target crossover frequency (Hz).
     meta : dict
-        Dictionary specifying the parameters to optimize. Each entry is:
-            key : str
-                Name of an attribute in `loop1`.
-            value : tuple
-                (min_val, max_val, initial_val, is_integer)
-                - min_val : lower bound for parameter
-                - max_val : upper bound for parameter
-                - initial_val : initial guess
-                - is_integer : bool, whether parameter should be cast to int
+        Parameter specification: {name: (min, max, initial_guess, is_int), ...}
     method : str, optional
-        Optimization method passed to `scipy.optimize.minimize`. Default is "Nelder-Mead".
+        Solver for `scipy.optimize.minimize`. Defaults to "Nelder-Mead".
     options : dict, optional
-        Dictionary of solver options passed to `scipy.optimize.minimize`.
+        Solver options. Defaults to {"maxiter": 1000}.
 
     Returns
     -------
-    None
-        The function prints the optimization results and updates a copy of `loop1` internally.
-        No values are returned. Results are shown via `print()` for diagnostic purposes.
-
-    Notes
-    -----
-    - Uses `copy.deepcopy(loop1)` to avoid modifying the original loop in-place.
-    - Crossover frequency is computed using `loop_crossover()`, which finds the first
-      frequency where the gain difference between loops changes sign.
-    - Prints optimized parameter values, achieved crossover frequency, and solver status.
-    - Attributes marked as `is_integer=True` in `meta` are cast to integers during optimization.
-
-    See Also
-    --------
-    loop_crossover : Computes the crossover frequency between two loop gain profiles.
-    scipy.optimize.minimize : Underlying optimizer used for tuning.
+    Tuple[scipy.optimize.OptimizeResult, LOOP]
+        A tuple containing the optimization result object and the optimized loop copy.
     """
-    def fun(x, desired, meta, loop_1, loop_2):
-        for i, attr in enumerate(meta):
-            if meta[attr][3]:
-                setattr(loop_1, attr, int(x[i]))
-            else:
-                setattr(loop_1, attr, x[i])
-        f_cross = loop_crossover(loop_1, loop_2, frfr)
-        return  np.abs(f_cross - desired)**2
-    
-    x0 = []
-    bounds = []
-    for atrr in meta:
-        bounds.append((meta[atrr][0], meta[atrr][1]))
-        x0.append(meta[atrr][2])
-
-    print(f"# ===== Optimization start ==========")
-    print(f"	x0 = {x0}")
-    print(f"	bounds = {bounds}")
-
     _loop_1 = copy.deepcopy(loop1)
+    freq_arr = np.asarray(frfr)
+
+    def cost_function(x: np.ndarray, desired: float, meta_spec: dict,
+                      loop_to_opt: LOOP, ref_loop: LOOP) -> float:
+        for i, (attr, spec) in enumerate(meta_spec.items()):
+            is_integer = spec[3]
+            value = int(x[i]) if is_integer else x[i]
+            setattr(loop_to_opt, attr, value)
+        
+        f_cross = loop_crossover(loop_to_opt, ref_loop, freq_arr)
+        return (f_cross - desired)**2
+
+    x0 = [m[2] for m in meta.values()]
+    bounds = [(m[0], m[1]) for m in meta.values()]
+
+    logger.info("# ===== Optimization start ==========")
+    logger.info(f"    x0 = {x0}")
+    logger.info(f"    bounds = {bounds}")
   
-    popt = minimize(fun=fun, 
-                    x0=x0, 
-                    bounds=bounds, 
-                    args=(desired_f_cross, meta, _loop_1, loop2), 
-                    method=method, 
-                    options=options)
+    popt = minimize(
+        fun=cost_function, 
+        x0=x0, 
+        bounds=bounds, 
+        args=(desired_f_cross, meta, _loop_1, loop2), 
+        method=method, 
+        options=options
+    )
     
-    for i, attr in enumerate(meta):
-        if meta[attr][3]:
-            setattr(_loop_1, attr, int(popt.x[i]))
-        else:
-            setattr(_loop_1, attr, popt.x[i])
+    # Apply final optimized parameters to the loop copy
+    for i, (attr, spec) in enumerate(meta.items()):
+        is_integer = spec[3]
+        value = int(popt.x[i]) if is_integer else popt.x[i]
+        setattr(_loop_1, attr, value)
 
-    f_cross = loop_crossover(_loop_1, loop2, frfr)
+    final_f_cross = loop_crossover(_loop_1, loop2, freq_arr)
 
-    print(f"# ===== Optimization result ==========")
+    # Log results for user feedback
+    logger.info("# ===== Optimization result ==========")
     for i, attr in enumerate(meta):
-        if meta[attr][3]:
-            print(f"	Result[{i}] = {int(popt.x)}")
-        else:
-            print(f"	Result[{i}] = {popt.x}")
-    print(f"	fcross (Hz) = {f_cross:.4}")
-    print(f"	Success = {popt.success}")
-    print(f"	Message = {popt.message}")
+        is_integer = meta[attr][3]
+        value = int(popt.x[i]) if is_integer else popt.x[i]
+        logger.info(f"    Optimized {attr} = {value}")
+    logger.info(f"    Achieved f_cross (Hz) = {final_f_cross:.4g}")
+    logger.info(f"    Success = {popt.success}")
+    logger.info(f"    Message = {popt.message}")
+    
+    return popt, _loop_1

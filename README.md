@@ -73,7 +73,7 @@ fig, ax = loop.bode_plot(frfr)
 plt.show()
 
 # Nyquist plot of open-loop gain
-fig, ax = loop.nyquist_plot(frfr, which='G', logy=True, logx=True, critical_point=True)
+ax = loop.nyquist_plot(frfr, which='G', logy=True, logx=True, critical_point=True)
 plt.show()
 ```
 

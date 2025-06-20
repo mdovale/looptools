@@ -244,6 +244,7 @@ class Component:
         self.TE.name = self.name
         self.TF = partial(transfer_function, com=self)
         if getattr(self, '_loop', None) != None:
+            self._loop.update()
             self._loop.notify_callbacks()
 
     def extrapolate_tf(self, f_trans, power=-2, size=2, solver=True):

@@ -375,7 +375,7 @@ def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
     else:
         margin = phase_at_ugf + np.pi
 
-    return ugf, margin
+    return ugf, (margin + 180) % 360 - 180
 
 def tf_power_fitting(f, tf, fnew, power):
     """
