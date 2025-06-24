@@ -281,9 +281,7 @@ class LaserLockPZT(LOOP):
         if off != [None]:
             logger.warning(f"The following components are not included in the loop {off}")
             
-        self.Gc, self.Hc, self.Ec = self.system_transfer_components()
-        self.Gf, self.Hf, self.Ef = self.system_transfer_functions()
-
+        self.update()
         self.register_component_properties()
 
     def __deepcopy__(self, memo):
@@ -427,9 +425,7 @@ class LaserLockTemp(LOOP):
         if off != [None]:
             logger.warning(f"The following components are not included in the loop {off}")
 
-        self.Gc, self.Hc, self.Ec = self.system_transfer_components()
-        self.Gf, self.Hf, self.Ef = self.system_transfer_functions()
-    
+        self.update()
         self.register_component_properties()
 
     def __deepcopy__(self, memo):

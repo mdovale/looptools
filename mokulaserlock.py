@@ -88,9 +88,7 @@ class MokuLaserLock(LOOP):
         if "Delay" not in off:
             self.add_component(lc.DSPDelayComponent("Delay", 78e6, n_reg=n_reg))
 
-        self.Gc, self.Hc, self.Ec = self.system_transfer_components()
-        self.Gf, self.Hf, self.Ef = self.system_transfer_functions()
-
+        self.update()
         self.register_component_properties()
 
     def __deepcopy__(self, memo):

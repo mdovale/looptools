@@ -79,13 +79,7 @@ class PLL(LOOP):
         if but != [None]:
             logging.warning(f"The following components are not included in the loop {but}")
 
-        #self.components = [self.PD, self.LF, self.Gain, self.PI, self.PA, self.LUT, self.DSP]
-        self.Gc, self.Hc, self.Ec = self.system_transfer_components()
-        self.Gf, self.Hf, self.Ef = self.system_transfer_functions()
-
-        # : === miscellany ============
-        # self.loop_simulator = plln.PLLnonlin(self)
-
+        self.update()
         self.register_component_properties()
         
     def __deepcopy__(self, memo):

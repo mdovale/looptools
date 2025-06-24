@@ -66,10 +66,29 @@ class LOOP:
 
     def update(self):
         """
-        Update internal system transfer functions and component states.
+        Compute transfer elements and prepare callable transfer functions of the loop.
+
+        Calculates:
+        - Gc: The open-loop transfer element G(z)
+        - Hc: The closed-loop (complementary sensitivity) transfer element H(z)
+        - Ec: The error transfer element E(z)
+        - Gf: Open-loop transfer function (callable)
+        - Hf: Closed-loop transfer function (callable)
+        - Ef: Error function (callable)
         """
-        self.system_transfer_components()
-        self.system_transfer_functions()
+        # Transfer elements:
+        self.Gc = np.prod(list(self.components_dict.values()))
+
+        H_TE = control.feedback(self.Gc.TE, 1)
+        self.Hc = Component("H", self.sps, tf=H_TE, unit=self.Gc.unit)
+
+        E_TE = control.feedback(1, self.Gc.TE)
+        self.Ec = Component("E", self.sps, tf=E_TE, unit=self.Gc.unit)
+        
+        # Transfer functions:
+        self.Gf = partial(self.tf_series, mode=None)
+        self.Hf = partial(self.tf_series, mode="H")
+        self.Ef = partial(self.tf_series, mode="E")
 
     def notify_callbacks(self):
         """
@@ -202,51 +221,6 @@ class LOOP:
         setattr(self.__class__, sys_property_name, property(get_prop, set_prop))
 
         self.property_list.append(sys_property_name)
-
-    def system_transfer_components(self):
-        """
-        Compute system-level transfer elements of the control loop.
-
-        Calculates:
-        - Gc: The open-loop transfer element G(z)
-        - Hc: The closed-loop (complementary sensitivity) transfer element H(z)
-        - Ec: The error transfer element E(z)
-
-        Returns
-        -------
-        tuple
-            (Gc, Hc, Ec) components as `Component` objects.
-        """
-        self.Gc = np.prod(list(self.components_dict.values()))
-
-        H_TE = control.feedback(self.Gc.TE, 1)
-        self.Hc = Component("H", self.sps, tf=H_TE, unit=self.Gc.unit)
-
-        E_TE = control.feedback(1, self.Gc.TE)
-        self.Ec = Component("E", self.sps, tf=E_TE, unit=self.Gc.unit)
-
-        return self.Gc, self.Hc, self.Ec
-
-    def system_transfer_functions(self):
-        """
-        Prepare callable frequency-domain transfer functions.
-
-        Defines partial function handles for evaluating the system's transfer
-        functions in the frequency domain:
-        - Gf: Open-loop
-        - Hf: Closed-loop
-        - Ef: Error
-
-        Returns
-        -------
-        tuple
-            (Gf, Hf, Ef) as callable partial functions.
-        """
-
-        self.Gf = partial(self.tf_series, mode=None)
-        self.Hf = partial(self.tf_series, mode="H")
-        self.Ef = partial(self.tf_series, mode="E")
-        return self.Gf, self.Hf, self.Ef
 
     def block_diagram(self, dpi=150, filename=None, transfer_functions=True):
         """
