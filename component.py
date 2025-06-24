@@ -62,6 +62,14 @@ class Component:
         self.name = name
         self.sps = sps
         self.unit = unit
+        self.TE = None
+        self.TF = None
+        self.phase = None
+        self.phase_deg = None
+        self.mag = None
+        self.mag_dB = None
+        self.phase_unwrapped = None
+        self.phase_deg_unwrapped = None
 
         if tf is None:
             self.nume = nume
@@ -243,6 +251,21 @@ class Component:
         self.TE = control.tf(self.nume, self.deno, 1/self.sps)
         self.TE.name = self.name
         self.TF = partial(transfer_function, com=self)
+
+        def _get_phase(tf_func, frfr, deg):
+            return np.angle(tf_func(frfr), deg=deg)
+
+        def _get_magnitude(tf_func, frfr, dB):
+            mag = np.abs(tf_func(frfr))
+            return control.mag2db(mag) if dB else mag
+
+        self.phase = lambda frfr: _get_phase(self.TF, frfr, deg=False)
+        self.phase_deg = lambda frfr: _get_phase(self.TF, frfr, deg=True)
+        self.mag = lambda frfr: _get_magnitude(self.TF, frfr, dB=False)
+        self.mag_dB = lambda frfr: _get_magnitude(self.TF, frfr, dB=True)
+        self.phase_unwrapped = lambda frfr: np.unwrap(self.phase(frfr))
+        self.phase_deg_unwrapped = lambda frfr: np.unwrap(self.phase_deg(frfr), period=360)
+
         if getattr(self, '_loop', None) != None:
             self._loop.update()
             self._loop.notify_callbacks()
