@@ -37,7 +37,7 @@ The library is designed with scientific control systems in mind—especially app
 import numpy as np
 import matplotlib.pyplot as plt
 from looptools.component import Component
-from looptools.components import PIIControllerComponent
+from looptools.components import PIControllerComponent
 from looptools.loop import LOOP
 import looptools.loopmath as lm
 
@@ -46,30 +46,36 @@ sps = 80e6  # Loop update frequency in Hz
 frfr = np.logspace(np.log10(1e0), np.log10(40e6), int(1e5))[:-1]  # Frequency array (Hz)
 
 # Define Plant using Laplace-domain string (auto-discretized)
-w_n = 2 * np.pi * 10e3 # 10 kHz resonance
-zeta = 0.05 # damping ratio
+w_n = 2 * np.pi * 1e6 # 10 kHz resonance
+zeta = 2.0 # damping ratio
 plant = Component("Plant", sps=sps, tf=f"{w_n**2} / (s**2 + {2*zeta*w_n}*s + {w_n**2})", domain='s')
 
 # Define Sensor using z-domain string (explicit difference equation)
 sensor = Component("Sensor", sps=sps, tf="(0.391 + 0.391*z**-1) / (1 - 0.218*z**-1)", domain='z')
 
 # Compute the P-servo log2 gain from a dB value
-p_log2_gain = lm.db_to_log2_gain(80)
+p_log2_gain = lm.db_to_log2_gain(15)
 
 # Compute the integrator log2 gains for a certain cross-over frequency with the P-servo
-i_log2_gain, ii_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, (1e4, 1e1), kind='II')
+i_log2_gain = lm.gain_for_crossover_frequency(p_log2_gain, sps, 1e5, kind='I')
 
 # Define PI controller component with those gains
-controller = PIIControllerComponent("Controller", sps=sps, Kp=p_log2_gain, Ki=i_log2_gain, Kii=ii_log2_gain)
+controller = PIControllerComponent("Controller", sps=sps, Kp=p_log2_gain, Ki=i_log2_gain)
 
 # Build the loop
 loop = LOOP(sps, [plant, sensor, controller], name="My Loop")
 
+ugf, margin = lm.get_margin(loop.Gf(f=frfr), frfr, deg=True, unwrap_phase=True, interpolate=True) # compute UGF and phase margin
+
+print(f"Unity gain frequency = {ugf:.4e} Hz; Phase margin = {margin:.4f} degrees")
+
 # Visualize block diagram
-loop.block_diagram(dpi=200)
+loop.block_diagram(dpi=150)
 
 # Bode plot of open-loop gain
-fig, ax = loop.bode_plot(frfr)
+ax = loop.bode_plot(frfr)
+ax[0].axvline(x=ugf, ls='--', c='gray')
+ax[1].axvline(x=ugf, ls='--', c='gray')
 plt.show()
 
 # Nyquist plot of open-loop gain
