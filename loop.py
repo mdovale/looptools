@@ -58,6 +58,12 @@ class LOOP:
         self.Gf = None
         self.Hf = None
         self.Ef = None
+        self.phase = None
+        self.phase_deg = None
+        self.mag = None
+        self.mag_dB = None
+        self.phase_unwrapped = None
+        self.phase_deg_unwrapped = None
 
         if component_list is not None:
             for comp in component_list:
@@ -75,6 +81,7 @@ class LOOP:
         - Gf: Open-loop transfer function (callable)
         - Hf: Closed-loop transfer function (callable)
         - Ef: Error function (callable)
+        - mag, phase, mag_dB, phase_deg, and unwrapped variants for Gf
         """
         # Transfer elements:
         self.Gc = np.prod(list(self.components_dict.values()))
@@ -85,10 +92,25 @@ class LOOP:
         E_TE = control.feedback(1, self.Gc.TE)
         self.Ec = Component("E", self.sps, tf=E_TE, unit=self.Gc.unit)
         
-        # Transfer functions:
+        # Transfer functions (expect Hz input):
         self.Gf = partial(self.tf_series, mode=None)
         self.Hf = partial(self.tf_series, mode="H")
         self.Ef = partial(self.tf_series, mode="E")
+
+        def _get_phase(tf_func, frfr, deg):
+            return np.angle(tf_func(frfr), deg=deg)
+
+        def _get_magnitude(tf_func, frfr, dB):
+            mag = np.abs(tf_func(frfr))
+            return control.mag2db(mag) if dB else mag
+
+        self.phase = lambda frfr: _get_phase(self.Gf, frfr, deg=False)
+        self.phase_deg = lambda frfr: _get_phase(self.Gf, frfr, deg=True)
+        self.mag = lambda frfr: _get_magnitude(self.Gf, frfr, dB=False)
+        self.mag_dB = lambda frfr: _get_magnitude(self.Gf, frfr, dB=True)
+        self.phase_unwrapped = lambda frfr: np.unwrap(self.phase(frfr))
+        self.phase_deg_unwrapped = lambda frfr: np.unwrap(self.phase_deg(frfr), period=360)
+
 
     def notify_callbacks(self):
         """
