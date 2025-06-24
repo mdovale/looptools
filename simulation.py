@@ -17,11 +17,10 @@ from tqdm.auto import tqdm
 
 # Assuming these are from a library this file is part of.
 # If these are not available, placeholders would be needed.
-from looptools.loopmath import get_margin, loop_crossover
-
-# Placeholder for the main loop object type for type hinting
-# from my_loop_library import LOOP
-LOOP = Any
+import looptools.loopmath as lm
+from looptools.component import Component
+import looptools.components as lc
+from looptools.loop import LOOP
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +75,7 @@ def _calculate_point(
     
     phase = np.rad2deg(phase_rad) if deg else phase_rad
 
-    ugf, pm = get_margin(
+    ugf, pm = lm.get_margin(
         tf, frequencies, deg=deg, unwrap_phase=unwrap_phase, interpolate=interpolate
     )
 
@@ -300,7 +299,7 @@ def old_parameter_sweep_1d(
         fsweep(p)
         if isTF:
             tf = _loop.Gf(f=freq_arr)
-            ugf_tmp, margin_tmp = get_margin(tf, freq_arr, deg=True)
+            ugf_tmp, margin_tmp = lm.get_margin(tf, freq_arr, deg=True)
         else:
             _, ugf_tmp, margin_tmp = _loop.Gc.bode(2 * np.pi * freq_arr)
         
@@ -360,7 +359,7 @@ def loop_crossover_optimizer(
             value = int(x[i]) if is_integer else x[i]
             setattr(loop_to_opt, attr, value)
         
-        f_cross = loop_crossover(loop_to_opt, ref_loop, freq_arr)
+        f_cross = lm.loop_crossover(loop_to_opt, ref_loop, freq_arr)
         return (f_cross - desired)**2
 
     x0 = [m[2] for m in meta.values()]
@@ -385,7 +384,7 @@ def loop_crossover_optimizer(
         value = int(popt.x[i]) if is_integer else popt.x[i]
         setattr(_loop_1, attr, value)
 
-    final_f_cross = loop_crossover(_loop_1, loop2, freq_arr)
+    final_f_cross = lm.loop_crossover(_loop_1, loop2, freq_arr)
 
     # Log results for user feedback
     logger.info("# ===== Optimization result ==========")
@@ -398,3 +397,85 @@ def loop_crossover_optimizer(
     logger.info(f"    Message = {popt.message}")
     
     return popt, _loop_1
+
+
+def fit_delay(obj, measurement_frfr, measurement_phase, units='rad'):
+    """
+    Estimate the number of DSP delay samples that best aligns a model phase response
+    with measured phase data, by minimizing mean squared phase error.
+
+    This is useful when modeling systems that include a known (but uncertain) digital
+    delay, such as a Moku:Pro filter pipeline. The delay is modeled as a z-domain 
+    delay component and applied multiplicatively to the system's frequency response.
+
+    Parameters
+    ----------
+    obj : Component or LOOP
+        The system model object whose transfer function will be used. Must define
+        a callable `.TF(freqs)` (for Component) or `.Gf(freqs)` (for LOOP).
+
+    measurement_frfr : array_like
+        Frequency points (in Hz) at which the phase data is measured.
+
+    measurement_phase : array_like
+        Phase response of the measured system, either in radians or degrees.
+        Must match `measurement_frfr` in shape.
+
+    units : {'rad', 'deg'}, optional
+        Units of the `measurement_phase`. If 'deg', it will be unwrapped with a 360° period
+        and converted to radians before comparison. Default is 'rad'.
+
+    Returns
+    -------
+    best_delay_samples : int
+        The estimated number of delay samples (can be fractional internally,
+        but result is rounded to nearest integer) that minimizes the phase error
+        between model and measurement.
+
+    Notes
+    -----
+    The function uses `looptools.components.DSPDelayComponent` to model the digital delay
+    and `scipy.optimize.minimize_scalar` to find the best delay value that aligns
+    the phase of the model with the measured phase data. The model phase is computed
+    using `np.angle(...)` and unwrapped before comparison.
+
+    Phase alignment is performed in radians internally for consistency.
+
+    Examples
+    --------
+    >>> delay = fit_delay(loop_model, freqs, measured_phase, units='deg')
+    >>> print(f"Best-fit delay: {delay} samples")
+    """
+    from scipy.optimize import minimize_scalar
+
+    if isinstance(obj, Component):
+        tf_func = obj.TF
+    elif isinstance(obj, LOOP):
+        tf_func = obj.Gf
+    else:
+        raise NotImplementedError(f"fit_delay: {obj} object not recognized")
+    
+    frfr = np.atleast_1d(measurement_frfr)
+
+    def phase_error(delay_samples):
+        c_delay = lc.DSPDelayComponent("_", sps=obj.sps, n_reg=delay_samples)
+        tf_delay = c_delay.TF
+
+        tf_model = tf_func(frfr)*tf_delay(frfr)
+        x = np.unwrap(np.angle(tf_model))
+
+        if units == 'rad':
+            u = np.unwrap(measurement_phase)
+        elif units == 'deg':
+            u = np.unwrap(measurement_phase, period=360)
+            u = np.pi*u/180.0
+        else:
+            raise ValueError(f"fit_delay: The phase must be specified in radians (rad) or degrees (deg), got: {units}")
+
+        return np.mean((u - x)**2)
+
+    result = minimize_scalar(phase_error, bounds=(0, 1000), method='bounded')
+
+    return result.x
+
+    
