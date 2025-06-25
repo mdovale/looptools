@@ -74,7 +74,7 @@ class MokuLaserLock(LOOP):
             self.add_component(Plant)
 
         if "Mixer" not in off:
-            self.add_component(Component("Mixer", 78.125e6, nume=[2*np.pi*Amp_input*Amp_reference/78.125e6], deno=[1,-1]))
+            self.add_component(Component("Mixer", 78.125e6, nume=[1.25*2*np.pi*Amp_input*Amp_reference/78.125e6], deno=[1,-1]))
 
         if "LPF" not in off:
             self.add_component(lc.ButterworthLPFComponent("LPF", 78.125e6, LPF_cutoff, LPF_n))
