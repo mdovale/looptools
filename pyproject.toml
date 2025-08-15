@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "looptools"
+version = "0.0.1"
+description = "A Python toolkit for Deep Frequency Modulation Interferometry."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Miguel Dovale", email = "mikedovale@pm.me" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "numba", "tqdm"]
+
+[project.optional-dependencies]
+dev = ["pytest", "build", "twine", "ruff"]
+
+[project.urls]
+Homepage = "https://github.com/mdovale/looptools"
+Repository = "https://github.com/mdovale/looptools"
+Issues = "https://github.com/mdovale/looptools/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["looptools*"]
+exclude = ["tests*", "notebooks*"]
+ 
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint.isort]
+known-first-party = ["looptools"]
+
+[tool.ruff.format]
+quote-style = "double"
