@@ -1,0 +1,10 @@
+{
+  "sps": 80000000.0,
+  "Amp": 1e-05,
+  "Cshift": 19,
+  "Klf": 5,
+  "Kp": 18,
+  "Ki": 4,
+  "twostages": true,
+  "n_reg": 10
+}

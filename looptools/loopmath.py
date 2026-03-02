@@ -172,7 +172,7 @@ def tf_group_delay(f, tf):
                 output[i] = gd[idx]
                 idx += 1
             else:
-                output[i] = t
+                output[i] = np.nan
 
     return output
 
