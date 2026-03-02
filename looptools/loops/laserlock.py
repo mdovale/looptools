@@ -33,11 +33,57 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
-from looptools.loop import LOOP
-from looptools.component import Component
-import looptools.loopmath as lm
-import looptools.components as lc
+from __future__ import annotations
+
+from typing import Optional, Sequence, Tuple
+
 import numpy as np
+
+import looptools.components as lc
+import looptools.loopmath as lm
+from looptools.component import Component
+from looptools.loop import LOOP
+
+
+def _validate_laserlock_params(
+    plant: Component,
+    amp_reference: float,
+    amp_input: float,
+    lpf_cutoff: float,
+    lpf_n: int,
+    cshift: int,
+    f_i: Optional[float],
+    f_ii: Optional[float],
+    n_reg: Optional[int],
+    sps_mixer: float,
+    nume_mixer: Sequence[float],
+    f_trans: Optional[float],
+) -> None:
+    """Validate LaserLock constructor parameters. Raises ValueError on invalid input."""
+    if not isinstance(plant, Component):
+        raise TypeError(f"Plant must be a Component, got {type(plant).__name__}")
+    if not (isinstance(amp_reference, (int, float)) and amp_reference > 0):
+        raise ValueError(f"Amp_reference must be positive, got {amp_reference!r}")
+    if not (isinstance(amp_input, (int, float)) and amp_input > 0):
+        raise ValueError(f"Amp_input must be positive, got {amp_input!r}")
+    if not (isinstance(lpf_cutoff, (int, float)) and lpf_cutoff > 0):
+        raise ValueError(f"LPF_cutoff must be positive, got {lpf_cutoff!r}")
+    if not (isinstance(lpf_n, int) and lpf_n >= 1):
+        raise ValueError(f"LPF_n must be an int >= 1, got {lpf_n!r}")
+    if not (isinstance(cshift, int) and cshift >= 0):
+        raise ValueError(f"Cshift must be a non-negative int, got {cshift!r}")
+    if f_i is not None and not (isinstance(f_i, (int, float)) and f_i > 0):
+        raise ValueError(f"f_I must be positive when provided, got {f_i!r}")
+    if f_ii is not None and not (isinstance(f_ii, (int, float)) and f_ii > 0):
+        raise ValueError(f"f_II must be positive when provided, got {f_ii!r}")
+    if n_reg is not None and not (isinstance(n_reg, int) and n_reg >= 0):
+        raise ValueError(f"n_reg must be a non-negative int when provided, got {n_reg!r}")
+    if not (isinstance(sps_mixer, (int, float)) and sps_mixer > 0):
+        raise ValueError(f"sps_mixer must be positive, got {sps_mixer!r}")
+    if f_trans is not None and not (isinstance(f_trans, (int, float)) and f_trans > 0):
+        raise ValueError(f"f_trans must be positive when provided, got {f_trans!r}")
+    if len(nume_mixer) == 0:
+        raise ValueError("nume_mixer must be a non-empty sequence")
 
 
 class LaserLock(LOOP):
@@ -61,7 +107,7 @@ class LaserLock(LOOP):
     LPF_cutoff : float
         Butterworth LPF cutoff frequency (Hz).
     LPF_n : int
-        Butterworth LPF number of stages.
+        Butterworth LPF number of stages (must be >= 1).
     Cshift : int
         Gain reduction stage, number of bits for RightBitShift.
     Kp_db : float
@@ -71,87 +117,105 @@ class LaserLock(LOOP):
     f_II : float, optional
         Second integrator crossover frequency (Hz).
     n_reg : int, optional
-        DSP delay component (number of registers).
+        DSP delay component (number of registers). Defaults to 0.
     sps_mixer : float, optional
         Sample rate for Mixer, LPF, and Gain components (Hz). Defaults to sps.
-    off : list, optional
-        Component names to exclude from the loop.
+    nume_mixer : sequence of float, optional
+        Mixer transfer function numerator (rad/s). Defaults to computed value.
+    off : sequence of str, optional
+        Component names to exclude from the loop. Defaults to none excluded.
     f_trans : float, optional
         Transfer function extrapolation frequency for the servo.
     """
 
-    def __init__(self,
-                sps,
-                Plant,
-                Amp_reference,
-                Amp_input,
-                LPF_cutoff,
-                LPF_n,
-                Cshift,
-                Kp_db,
-                f_I=None,
-                f_II=None,
-                n_reg=None,
-                sps_mixer=None,
-                nume_mixer=None,
-                off=[None],
-                f_trans=None
-                ):
+    def __init__(
+        self,
+        sps: float,
+        Plant: Component,
+        Amp_reference: float,
+        Amp_input: float,
+        LPF_cutoff: float,
+        LPF_n: int,
+        Cshift: int,
+        Kp_db: float,
+        f_I: Optional[float] = None,
+        f_II: Optional[float] = None,
+        n_reg: Optional[int] = None,
+        sps_mixer: Optional[float] = None,
+        nume_mixer: Optional[Sequence[float]] = None,
+        off: Optional[Sequence[str]] = None,
+        f_trans: Optional[float] = None,
+    ) -> None:
         super().__init__(sps)
-        sps_mixer = sps if sps_mixer is None else sps_mixer
-        nume_mixer = [2*np.pi*Amp_input*Amp_reference/sps_mixer] if nume_mixer is None else nume_mixer # Mixer transfer function numerator (rad/s)
 
-        # Validate inputs
-        assert isinstance(Plant, Component)
-        assert Amp_reference > 0
-        assert Amp_input > 0
-        assert LPF_cutoff > 0
-        assert LPF_n >= 0 and isinstance(LPF_n, int)
-        assert Cshift >= 0 and isinstance(Cshift, int)
-        if f_I is not None: assert f_I > 0
-        if f_II is not None: assert f_II > 0
+        _sps_mixer = float(sps) if sps_mixer is None else float(sps_mixer)
+        _nume_mixer: Tuple[float, ...]
+        if nume_mixer is None:
+            _nume_mixer = (2 * np.pi * Amp_input * Amp_reference / _sps_mixer,)
+        else:
+            _nume_mixer = tuple(float(x) for x in nume_mixer)
+
+        _validate_laserlock_params(
+            Plant, Amp_reference, Amp_input, LPF_cutoff, LPF_n, Cshift,
+            f_I, f_II, n_reg, _sps_mixer, _nume_mixer, f_trans,
+        )
+
+        _off: Tuple[str, ...] = () if off is None else tuple(str(x) for x in off)
+        _n_reg: int = 0 if n_reg is None else n_reg
 
         self.Plant = Plant
-        self.Amp_reference = Amp_reference
-        self.Amp_input = Amp_input
-        self.LPF_cutoff = LPF_cutoff
-        self.LPF_n = LPF_n
-        self.Cshift = Cshift
-        self.Kp_db = Kp_db
-        self.f_I = f_I
-        self.f_II = f_II
-        self.n_reg = n_reg
-        self.off = off
-        self.sps_mixer = sps_mixer
-        self.nume_mixer = nume_mixer
+        self.Amp_reference = float(Amp_reference)
+        self.Amp_input = float(Amp_input)
+        self.LPF_cutoff = float(LPF_cutoff)
+        self.LPF_n = int(LPF_n)
+        self.Cshift = int(Cshift)
+        self.Kp_db = float(Kp_db)
+        self.f_I = f_I if f_I is None else float(f_I)
+        self.f_II = f_II if f_II is None else float(f_II)
+        self.n_reg = _n_reg
+        self.off = _off
+        self.sps_mixer = _sps_mixer
+        self.nume_mixer = _nume_mixer
         self.Kp_log2 = lm.db_to_log2_gain(Kp_db)
 
         if f_I is not None and f_II is None:
-            self.Ki_log2 = lm.gain_for_crossover_frequency(self.Kp_log2, sps, f_I, kind='I')
+            self.Ki_log2 = lm.gain_for_crossover_frequency(
+                self.Kp_log2, sps, f_I, kind="I"
+            )
             self.Kii_log2 = None
         elif (f_I, f_II) != (None, None):
-            self.Ki_log2, self.Kii_log2 = lm.gain_for_crossover_frequency(self.Kp_log2, sps, (f_I, f_II), kind='II')
+            self.Ki_log2, self.Kii_log2 = lm.gain_for_crossover_frequency(
+                self.Kp_log2, sps, (f_I, f_II), kind="II"
+            )
         else:
             self.Ki_log2 = None
             self.Kii_log2 = None
 
-        if "Plant" not in off:
+        if "Plant" not in _off:
             self.add_component(Plant)
 
-        if "Mixer" not in off:
-            self.add_component(Component("Mixer", sps_mixer, nume=nume_mixer, deno=[1,-1]))
+        if "Mixer" not in _off:
+            self.add_component(
+                Component("Mixer", _sps_mixer, nume=list(_nume_mixer), deno=[1, -1])
+            )
 
-        if "LPF" not in off:
-            self.add_component(lc.ButterworthLPFComponent("LPF", sps_mixer, LPF_cutoff, LPF_n))
+        if "LPF" not in _off:
+            self.add_component(
+                lc.ButterworthLPFComponent("LPF", _sps_mixer, LPF_cutoff, LPF_n)
+            )
 
-        if "Gain" not in off:
-            self.add_component(lc.RightBitShiftComponent("Gain", sps_mixer, Cshift))
+        if "Gain" not in _off:
+            self.add_component(lc.RightBitShiftComponent("Gain", _sps_mixer, Cshift))
 
-        if "Servo" not in off:
-            self.add_component(lc.MokuPIDController("Servo", sps, Kp_db, f_I, f_II, None, f_trans=f_trans))
+        if "Servo" not in _off:
+            self.add_component(
+                lc.MokuPIDController(
+                    "Servo", sps, Kp_db, f_I, f_II, None, f_trans=f_trans
+                )
+            )
 
-        if "Delay" not in off:
-            self.add_component(lc.DSPDelayComponent("Delay", sps, n_reg=n_reg))
+        if "Delay" not in _off:
+            self.add_component(lc.DSPDelayComponent("Delay", sps, _n_reg))
 
         self.update()
         self.register_component_properties()

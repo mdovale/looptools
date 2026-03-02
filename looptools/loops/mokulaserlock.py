@@ -33,8 +33,11 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
-from looptools.loops.laserlock import LaserLock
+from typing import Optional, Sequence
+
 import numpy as np
+
+from looptools.loops.laserlock import LaserLock
 
 
 class MokuLaserLock(LaserLock):
@@ -54,20 +57,21 @@ class MokuLaserLock(LaserLock):
     SPS = 78e6
     SPS_MIXER = 78.125e6
 
-    def __init__(self,
-                Plant,
-                Amp_reference,
-                Amp_input,
-                LPF_cutoff,
-                LPF_n,
-                Cshift,
-                Kp_db,
-                f_I=None,
-                f_II=None,
-                n_reg=None,
-                off=[None],
-                f_trans=None
-                ):
+    def __init__(
+        self,
+        Plant,
+        Amp_reference,
+        Amp_input,
+        LPF_cutoff,
+        LPF_n,
+        Cshift,
+        Kp_db,
+        f_I=None,
+        f_II=None,
+        n_reg=None,
+        off: Optional[Sequence[str]] = None,
+        f_trans=None,
+    ):
         super().__init__(
             sps=MokuLaserLock.SPS,
             Plant=Plant,
