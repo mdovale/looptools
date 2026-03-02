@@ -1,10 +1,10 @@
-"""Unit tests for looptools.loop."""
+"""Unit tests for loopkit.loop."""
 
 import numpy as np
 import pytest
 
-from looptools.loop import LOOP
-from looptools.component import Component
+from loopkit.loop import LOOP
+from loopkit.component import Component
 
 
 # -----------------------------------------------------------------------------

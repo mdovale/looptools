@@ -39,10 +39,10 @@ from typing import Any
 
 import numpy as np
 
-from looptools.component import Component
-from looptools.dimension import Dimension
+from loopkit.component import Component
+from loopkit.dimension import Dimension
 
-from looptools.components._validation import _validate_int_non_negative, _validate_positive
+from loopkit.components._validation import _validate_int_non_negative, _validate_positive
 
 
 class DSPDelayComponent(Component):

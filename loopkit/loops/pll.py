@@ -41,9 +41,9 @@ from typing import Any, Optional, Sequence, Tuple, Union
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-import looptools.components as lc
-from looptools.component import Component
-from looptools.loop import LOOP
+import loopkit.components as lc
+from loopkit.component import Component
+from loopkit.loop import LOOP
 
 logger = logging.getLogger(__name__)
 

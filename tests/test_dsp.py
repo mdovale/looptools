@@ -1,9 +1,9 @@
-"""Unit tests for looptools.dsp."""
+"""Unit tests for loopkit.dsp."""
 
 import numpy as np
 import pytest
 
-from looptools.dsp import (
+from loopkit.dsp import (
     crop_data,
     index_of_the_nearest,
     integral_rms,

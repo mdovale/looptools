@@ -5,7 +5,7 @@ include AUTHORS
 include pyproject.toml
 
 # Ship library source
-graft looptools
+graft loopkit
 
 # Ship tests and examples in sdist
 graft examples

@@ -1,9 +1,9 @@
-"""Unit tests for looptools.loopmath."""
+"""Unit tests for loopkit.loopmath."""
 
 import numpy as np
 import pytest
 
-from looptools.loopmath import (
+from loopkit.loopmath import (
     loop_crossover,
     wrap_phase,
     tf_group_delay,

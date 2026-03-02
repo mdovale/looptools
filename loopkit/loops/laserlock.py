@@ -39,10 +39,10 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-import looptools.components as lc
-import looptools.loopmath as lm
-from looptools.component import Component
-from looptools.loop import LOOP
+import loopkit.components as lc
+import loopkit.loopmath as lm
+from loopkit.component import Component
+from loopkit.loop import LOOP
 
 
 def _validate_laserlock_params(
@@ -99,7 +99,7 @@ class LaserLock(LOOP):
     sps : float
         Main loop sample rate (Hz), used for Servo and Delay components.
     Plant : Component
-        looptools Component specifying the plant.
+        loopkit Component specifying the plant.
     Amp_reference : float
         Mixer local oscillator amplitude (Vpp).
     Amp_input : float

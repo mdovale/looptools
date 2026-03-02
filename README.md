@@ -1,13 +1,13 @@
 
-# looptools
+# loopkit
 
 A Python library for modeling, analyzing, and simulating feedback control loops, with a focus on scientific and engineering applications such as laser locking, electronics, and precision instrumentation.
 
 ---
 
-## 🔧 What is `looptools`?
+## 🔧 What is `loopkit`?
 
-`looptools` provides an object-oriented framework for building and analyzing control loops as directed graphs of signal-processing components. It supports:
+`loopkit` provides an object-oriented framework for building and analyzing control loops as directed graphs of signal-processing components. It supports:
 
 - Modular design of control systems using Python classes and NumPy/Scipy tools
 - Construction of linear time-invariant (LTI) models via symbolic transfer functions or tabulated data
@@ -36,10 +36,10 @@ The library is designed with scientific control systems in mind—especially app
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from looptools.component import Component
-from looptools.components import PIControllerComponent
-from looptools.loop import LOOP
-import looptools.loopmath as lm
+from loopkit.component import Component
+from loopkit.components import PIControllerComponent
+from loopkit.loop import LOOP
+import loopkit.loopmath as lm
 
 # Define loop parameters
 sps = 80e6  # Loop update frequency in Hz
@@ -87,7 +87,7 @@ plt.show()
 
 ## 🧪 Specialized Loop Implementations
 
-The `looptools.loops` subpackage provides pre-built loop models:
+The `loopkit.loops` subpackage provides pre-built loop models:
 
 - **`PLL`**: Digital phase-locked loop model.
 - **`MokuLaserLock`**: Laser frequency lock model for Moku hardware (heterodyne phase-locking).
@@ -95,7 +95,7 @@ The `looptools.loops` subpackage provides pre-built loop models:
 - **`LaserLockPZT`**, **`LaserLockTemp`**: Building blocks for laser lock subsystems.
 
 ```python
-from looptools.loops import PLL, MokuLaserLock, NPROLaserLock
+from loopkit.loops import PLL, MokuLaserLock, NPROLaserLock
 ```
 
 ---

@@ -44,8 +44,8 @@ from typing import Any, Callable, Dict, Literal, Optional, Sequence, Tuple, Unio
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from looptools.component import Component
-from looptools.components import (
+from loopkit.component import Component
+from loopkit.components import (
     ActuatorComponent,
     DoubleIntegratorComponent,
     DSPDelayComponent,
@@ -55,10 +55,10 @@ from looptools.components import (
     PIControllerComponent,
     RightBitShiftComponent,
 )
-from looptools.dimension import Dimension
-from looptools.dsp import integral_rms
-from looptools.loop import LOOP
-from looptools.loopmath import add_transfer_function
+from loopkit.dimension import Dimension
+from loopkit.dsp import integral_rms
+from loopkit.loop import LOOP
+from loopkit.loopmath import add_transfer_function
 
 logger = logging.getLogger(__name__)
 

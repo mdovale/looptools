@@ -40,9 +40,9 @@ from typing import Any, Dict
 
 import numpy as np
 
-import looptools.loopmath as lm
-from looptools.component import Component
-from looptools.dimension import Dimension
+import loopkit.loopmath as lm
+from loopkit.component import Component
+from loopkit.dimension import Dimension
 
 
 def _validate_positive(name: str, value: float, *, strict: bool = True) -> float:

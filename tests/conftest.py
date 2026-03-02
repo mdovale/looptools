@@ -1,4 +1,4 @@
-"""Pytest configuration and shared fixtures for looptools tests."""
+"""Pytest configuration and shared fixtures for loopkit tests."""
 
 import matplotlib
 

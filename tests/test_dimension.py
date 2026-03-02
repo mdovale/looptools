@@ -1,8 +1,8 @@
-"""Unit tests for looptools.dimension."""
+"""Unit tests for loopkit.dimension."""
 
 import pytest
 
-from looptools.dimension import Dimension
+from loopkit.dimension import Dimension
 
 
 # -----------------------------------------------------------------------------

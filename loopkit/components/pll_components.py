@@ -39,9 +39,9 @@ from typing import Any, Dict
 
 import numpy as np
 
-from looptools.component import Component
-from looptools.dimension import Dimension
-from looptools.components._validation import _validate_positive
+from loopkit.component import Component
+from loopkit.dimension import Dimension
+from loopkit.components._validation import _validate_positive
 
 
 class PDComponent(Component):

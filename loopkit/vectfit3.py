@@ -197,7 +197,7 @@ def vectfitPlot(F,fit,s,opts, initialState=False, titleLabel="Vector Fitting Res
     # Importing plots and graphs module:
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-    from looptools.plots import default_rc
+    from loopkit.plots import default_rc
     with plt.rc_context(default_rc):
         freq=np.real(s/(2*pi*1j))
         # LogLog plots: Graphs with logarithmic x and y axis

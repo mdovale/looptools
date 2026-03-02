@@ -1,1 +1,1 @@
-# Tests for looptools
+# Tests for loopkit

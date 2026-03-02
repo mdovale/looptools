@@ -40,14 +40,14 @@ from typing import Any, Optional, Tuple, Union
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from looptools.loopmath import (
+from loopkit.loopmath import (
     add_transfer_function,
     mul_transfer_function,
     tf_power_extrapolate,
 )
-from looptools.utils import normalize_tf_string
-from looptools import dimension as dim
-from looptools.plots import default_rc
+from loopkit.utils import normalize_tf_string
+from loopkit import dimension as dim
+from loopkit.plots import default_rc
 
 import warnings
 import copy

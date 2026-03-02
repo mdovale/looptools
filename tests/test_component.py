@@ -1,11 +1,11 @@
-"""Unit tests for looptools.component."""
+"""Unit tests for loopkit.component."""
 
 import numpy as np
 import control
 import pytest
 
-from looptools.component import Component, transfer_function
-from looptools import dimension as dim
+from loopkit.component import Component, transfer_function
+from loopkit import dimension as dim
 
 
 # -----------------------------------------------------------------------------

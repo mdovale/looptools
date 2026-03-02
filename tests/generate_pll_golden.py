@@ -2,7 +2,7 @@
 """
 Generate golden reference data for PLL regression tests.
 
-Uses parameters from notebooks/0.1_pll-demo.ipynb and 0.1_looptools-pll-vs-pypm.ipynb.
+Uses parameters from notebooks/0.1_pll-demo.ipynb.
 Run this script when PLL behavior has been verified correct to update the golden file.
 
 Usage:
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
-from looptools.loops import PLL
-from looptools.loopmath import get_margin
+from loopkit.loops import PLL
+from loopkit.loopmath import get_margin
 
 # Parameters from pll-demo notebook (real-world PLL config)
 PARAMS = {

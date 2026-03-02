@@ -49,11 +49,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from looptools import dsp
-from looptools.component import Component
-from looptools.dimension import Dimension
-from looptools.loopmath import tf_power_extrapolate
-from looptools.plots import default_rc
+from loopkit import dsp
+from loopkit.component import Component
+from loopkit.dimension import Dimension
+from loopkit.loopmath import tf_power_extrapolate
+from loopkit.plots import default_rc
 
 logger = logging.getLogger(__name__)
 
@@ -384,7 +384,7 @@ class LOOP:
         ------
         ImportError
             If the optional dependencies (PyMuPDF, pytikz, IPython) are not installed.
-            Install with: pip install looptools[diagram]
+            Install with: pip install loopkit[diagram]
         """
         try:
             import fitz
@@ -393,7 +393,7 @@ class LOOP:
         except ImportError as e:
             raise ImportError(
                 "block_diagram() requires optional dependencies: PyMuPDF, pytikz, and IPython. "
-                "Install with: pip install looptools[diagram]"
+                "Install with: pip install loopkit[diagram]"
             ) from e
 
         import html

@@ -27,18 +27,40 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-"""Loop implementations: PLL, laser locks (Moku, NPRO), and related models."""
+"""Concrete Component implementations for control loop modeling."""
 
-from looptools.loops.pll import PLL
-from looptools.loops.laserlock import LaserLock
-from looptools.loops.mokulaserlock import MokuLaserLock
-from looptools.loops.nprolaserlock import NPROLaserLock, LaserLockPZT, LaserLockTemp
+from loopkit.components._opamp import set_opamp_parameters, OpAmp_dict
+from loopkit.components.gains import MultiplierComponent, RightBitShiftComponent
+from loopkit.components.filters import LPFComponent, ButterworthLPFComponent, TwoStageLPFComponent
+from loopkit.components.controllers import (
+    PIControllerComponent,
+    DoubleIntegratorComponent,
+    PIIControllerComponent,
+    MokuPIDSymbolicController,
+    MokuPIDController,
+)
+from loopkit.components.delay import DSPDelayComponent
+from loopkit.components.pll_components import PDComponent, PAComponent, LUTComponent
+from loopkit.components.actuators import ActuatorComponent, ImplicitAccumulatorComponent, LeadLagComponent
 
 __all__ = [
-    "PLL",
-    "LaserLock",
-    "MokuLaserLock",
-    "NPROLaserLock",
-    "LaserLockPZT",
-    "LaserLockTemp",
+    "set_opamp_parameters",
+    "OpAmp_dict",
+    "PDComponent",
+    "MultiplierComponent",
+    "RightBitShiftComponent",
+    "LPFComponent",
+    "ButterworthLPFComponent",
+    "TwoStageLPFComponent",
+    "PIControllerComponent",
+    "DoubleIntegratorComponent",
+    "PIIControllerComponent",
+    "MokuPIDSymbolicController",
+    "MokuPIDController",
+    "DSPDelayComponent",
+    "PAComponent",
+    "LUTComponent",
+    "ActuatorComponent",
+    "ImplicitAccumulatorComponent",
+    "LeadLagComponent",
 ]

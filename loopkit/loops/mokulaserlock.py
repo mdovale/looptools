@@ -37,7 +37,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from looptools.loops.laserlock import LaserLock
+from loopkit.loops.laserlock import LaserLock
 
 
 class MokuLaserLock(LaserLock):
@@ -46,7 +46,7 @@ class MokuLaserLock(LaserLock):
 
     This class simulates the signal flow and control elements used in a heterodyne phase-locking setup 
     implemented with a Liquid Instruments Moku:Pro or Moku:Lab device. It leverages components from 
-    the looptools library to approximate the Moku's internal signal processing pipeline using bit-shift 
+    the loopkit library to approximate the Moku's internal signal processing pipeline using bit-shift 
     based log₂ gain representation.
 
     Inherits from LaserLock with Moku-specific sampling rates: 78 MHz for the main loop

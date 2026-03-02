@@ -43,7 +43,7 @@ from numpy.typing import ArrayLike, NDArray
 from scipy.interpolate import interp1d
 from scipy.optimize import brentq, curve_fit, root_scalar
 
-from looptools import dsp
+from loopkit import dsp
 
 
 class _LoopWithGf(Protocol):

@@ -1,4 +1,4 @@
-"""Unit tests for looptools.pll."""
+"""Unit tests for loopkit.pll."""
 
 import copy
 import json
@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from looptools.loopmath import get_margin
-from looptools.loops import PLL
+from loopkit.loopmath import get_margin
+from loopkit.loops import PLL
 
 
 # -----------------------------------------------------------------------------

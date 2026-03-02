@@ -40,11 +40,11 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 
-import looptools.loopmath as lm
-from looptools.component import Component
-from looptools.dimension import Dimension
+import loopkit.loopmath as lm
+from loopkit.component import Component
+from loopkit.dimension import Dimension
 
-from looptools.components._validation import (
+from loopkit.components._validation import (
     _validate_extrapolate,
     _validate_numeric,
     _validate_optional_positive,

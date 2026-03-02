@@ -3,8 +3,8 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "looptools"
-version = "0.0.1"
+name = "loopkit"
+version = "1.0.0"
 description = "A Python toolkit for Deep Frequency Modulation Interferometry."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
@@ -24,13 +24,13 @@ dev = ["pytest", "build", "twine", "ruff"]
 diagram = ["PyMuPDF", "pytikz", "IPython"]
 
 [project.urls]
-Homepage = "https://github.com/mdovale/looptools"
-Repository = "https://github.com/mdovale/looptools"
-Issues = "https://github.com/mdovale/looptools/issues"
+Homepage = "https://github.com/mdovale/loopkit"
+Repository = "https://github.com/mdovale/loopkit"
+Issues = "https://github.com/mdovale/loopkit/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["looptools*"]
+include = ["loopkit*"]
 exclude = ["tests*", "notebooks*"]
  
 [tool.pytest.ini_options]
@@ -43,7 +43,7 @@ addopts = "-v --tb=short"
 line-length = 88
 
 [tool.ruff.lint.isort]
-known-first-party = ["looptools"]
+known-first-party = ["loopkit"]
 
 [tool.ruff.format]
 quote-style = "double"

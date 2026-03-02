@@ -48,10 +48,10 @@ from joblib.parallel import BatchCompletionCallBack
 from scipy.optimize import minimize, OptimizeResult
 from tqdm.auto import tqdm
 
-import looptools.loopmath as lm
-from looptools.component import Component
-import looptools.components as lc
-from looptools.loop import LOOP
+import loopkit.loopmath as lm
+from loopkit.component import Component
+import loopkit.components as lc
+from loopkit.loop import LOOP
 
 logger = logging.getLogger(__name__)
 
@@ -509,7 +509,7 @@ def fit_delay(
 
     Notes
     -----
-    The function uses `looptools.components.DSPDelayComponent` to model the digital delay
+    The function uses `loopkit.components.DSPDelayComponent` to model the digital delay
     and `scipy.optimize.minimize_scalar` to find the best delay value that aligns
     the phase of the model with the measured phase data. The model phase is computed
     using `np.angle(...)` and unwrapped before comparison.

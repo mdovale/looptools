@@ -40,8 +40,8 @@ from typing import Any, Dict
 
 import numpy as np
 
-from looptools.component import Component
-from looptools.dimension import Dimension
+from loopkit.component import Component
+from loopkit.dimension import Dimension
 
 from ._validation import (
     _validate_numeric,
