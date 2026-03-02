@@ -33,7 +33,18 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-from looptools.loopmath import *
+from __future__ import annotations
+
+from typing import Any, Optional, Tuple, Union
+
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+
+from looptools.loopmath import (
+    add_transfer_function,
+    mul_transfer_function,
+    tf_power_extrapolate,
+)
 from looptools.utils import normalize_tf_string
 from looptools import dimension as dim
 from looptools.plots import default_rc
@@ -42,7 +53,6 @@ import warnings
 import copy
 import numbers
 import control
-import numpy as np
 from functools import partial
 import scipy.signal as sig
 import matplotlib.pyplot as plt
@@ -51,8 +61,20 @@ logger = logging.getLogger(__name__)
 
 
 
+TfSpec = Union[str, float, control.TransferFunction, Tuple[ArrayLike, ArrayLike]]
+
+
 class Component:
-    def __init__(self, name, sps, nume=np.array([1.0]), deno=np.array([1.0]), tf=None, domain='z', unit=dim.Dimension(dimensionless=True)):
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        nume: ArrayLike = np.array([1.0]),
+        deno: ArrayLike = np.array([1.0]),
+        tf: Optional[TfSpec] = None,
+        domain: str = "z",
+        unit: dim.Dimension = dim.Dimension(dimensionless=True),
+    ) -> None:
         """
         Represents a component in a control loop with its transfer function.
 
@@ -95,7 +117,9 @@ class Component:
             Sample rate in Hz.
         """
         self.name = name
-        self.sps = sps
+        if sps is None or sps <= 0:
+            raise ValueError("Sample rate `sps` must be a positive number (Hz)")
+        self.sps = float(sps)
         self.unit = unit
         self.TE = None
         self.TF = None
@@ -163,7 +187,7 @@ class Component:
                         deno_poly = Poly(deno_expr, var)
                         nume_raw = np.array(nume_poly.all_coeffs(), dtype=float)
                         deno_raw = np.array(deno_poly.all_coeffs(), dtype=float)
-                    except sympy.polys.polyerrors.PolynomialError as e:
+                    except sp.polys.polyerrors.PolynomialError as e:
                         raise ValueError(
                             f"TF must be a rational polynomial in '{var}'. Got:\n"
                             f"  Numerator: {nume_expr}\n"
@@ -214,7 +238,7 @@ class Component:
         self.TE.name = name
         self.update()
 
-    def __add__(self, other):
+    def __add__(self, other: Component) -> Component:
         """
         Define parallel addition (+) between two components.
 
@@ -228,13 +252,15 @@ class Component:
         Component
             New component representing the parallel connection.
         """
+        if not isinstance(other, Component):
+            raise TypeError(f"Component addition requires another Component, got {type(other).__name__}")
         new_TF = control.parallel(self.TE, other.TE)
         new = Component(self.name+'+'+other.name, sps=self.sps, tf=new_TF, unit=self.unit)
         new.TF = partial(add_transfer_function, tf1=self.TF, tf2=other.TF)
 
         return new
 
-    def __mul__(self, other):
+    def __mul__(self, other: Component) -> Component:
         """
         Define series multiplication (*) between two components.
 
@@ -248,6 +274,8 @@ class Component:
         Component
             New component representing the series connection.
         """
+        if not isinstance(other, Component):
+            raise TypeError(f"Component multiplication requires another Component, got {type(other).__name__}")
         new_unit = self.unit * other.unit
         new_name = self.name + '*' + other.name
 
@@ -259,25 +287,27 @@ class Component:
 
         return new
 
-    def modify(self, new_nume, new_deno=None):
+    def modify(
+        self,
+        new_nume: ArrayLike,
+        new_deno: Optional[ArrayLike] = None,
+    ) -> None:
         """
         Modify the transfer function coefficients of the component.
 
         Parameters
         ----------
         new_nume : array_like
-        New numerator coefficients.
+            New numerator coefficients (scalar or 1D array).
         new_deno : array_like, optional
-        New denominator coefficients; if None, original denominator is kept.
+            New denominator coefficients; if None, original denominator is kept.
         """
-        self.nume = np.array([new_nume])
+        self.nume = np.atleast_1d(np.asarray(new_nume, dtype=float)).flatten()
         if new_deno is not None:
-            self.deno = np.array(new_deno)
-        self.TE = control.tf(self.nume, self.deno, 1/self.sps)
-        self.TE.name = self.name
-        self.TF = partial(transfer_function, com=self)
+            self.deno = np.atleast_1d(np.asarray(new_deno, dtype=float)).flatten()
+        self.update()
 
-    def update(self):
+    def update(self) -> None:
         """
         Refresh internal symbolic and callable representations of the transfer function.
 
@@ -288,11 +318,11 @@ class Component:
         self.TF = partial(transfer_function, com=self)
         self._recreate_derived_attrs()
 
-        if getattr(self, '_loop', None) != None:
+        if getattr(self, '_loop', None) is not None:
             self._loop.update()
             self._loop.notify_callbacks()
 
-    def _recreate_derived_attrs(self):
+    def _recreate_derived_attrs(self) -> None:
         """Recreate phase, mag, etc. from self.TF. Used after unpickling."""
         def _get_phase(tf_func, frfr, deg):
             return np.angle(tf_func(frfr), deg=deg)
@@ -308,18 +338,24 @@ class Component:
         self.phase_unwrapped = lambda frfr: np.unwrap(self.phase(frfr))
         self.phase_deg_unwrapped = lambda frfr: np.unwrap(self.phase_deg(frfr), period=360)
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
         # Lambdas cannot be pickled; they are recreated in __setstate__ via _recreate_derived_attrs().
         for attr in ('phase', 'phase_deg', 'mag', 'mag_dB', 'phase_unwrapped', 'phase_deg_unwrapped'):
             state.pop(attr, None)
         return state
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._recreate_derived_attrs()
 
-    def extrapolate_tf(self, f_trans, power=-2, size=2, solver=True):
+    def extrapolate_tf(
+        self,
+        f_trans: float,
+        power: float = -2,
+        size: int = 2,
+        solver: bool = True,
+    ) -> None:
         """
         Replace the component's transfer function with an extrapolated version.
 
@@ -357,7 +393,7 @@ class Component:
             solver=solver
         )
 
-    def group_delay(self, omega):
+    def group_delay(self, omega: ArrayLike) -> NDArray[np.floating[Any]]:
         """
         Compute the group delay of the component.
 
@@ -371,11 +407,16 @@ class Component:
         array_like
             Group delay in seconds.
         """
-        # todo: remove this after the consistency check with tf_group_delay() in auxiliary.py 
         _, delay = sig.group_delay((self.nume, self.deno), omega, fs=2*np.pi*self.sps)
         return delay/self.sps
     
-    def bode(self, frfr, dB=False, deg=True, wrap=True):
+    def bode(
+        self,
+        frfr: ArrayLike,
+        dB: bool = False,
+        deg: bool = True,
+        wrap: bool = True,
+    ) -> Tuple[NDArray[Any], NDArray[Any]]:
         """
         Compute the Bode magnitude and phase of the component at given frequencies.
 
@@ -415,7 +456,19 @@ class Component:
 
         return mag, phase
     
-    def bode_plot(self, frfr, figsize=(4, 4), title=None, dB=False, deg=True, wrap=True, axes=None, label=None, *args, **kwargs):
+    def bode_plot(
+        self,
+        frfr: ArrayLike,
+        figsize: Tuple[float, float] = (4, 4),
+        title: Optional[str] = None,
+        dB: bool = False,
+        deg: bool = True,
+        wrap: bool = True,
+        axes: Optional[Tuple[plt.Axes, plt.Axes]] = None,
+        label: Optional[str] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Tuple[plt.Axes, plt.Axes]:
         """
         Plot the Bode diagram (magnitude and phase) of this component.
 
@@ -438,13 +491,14 @@ class Component:
 
         Returns
         -------
-        fig : matplotlib.figure.Figure
-            The figure object containing the plots.
-        axes : tuple of matplotlib.axes.Axes
-            The magnitude and phase axes used.
+        tuple of matplotlib.axes.Axes
+            The magnitude and phase axes (ax_mag, ax_phase). Access the figure
+            via ax_mag.figure.
         """
         f = np.asarray(frfr)
-        
+        if f.size == 0:
+            raise ValueError("Frequency array must not be empty")
+
         with plt.rc_context(default_rc), warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
 
@@ -495,7 +549,15 @@ class Component:
 
             return (ax_mag, ax_phase)
 
-def transfer_function(f, com, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
+def transfer_function(
+    f: ArrayLike,
+    com: Component,
+    extrapolate: bool = False,
+    f_trans: float = 1e-1,
+    power: float = -2,
+    size: int = 2,
+    solver: bool = True,
+) -> NDArray[np.complexfloating[Any, Any]]:
     """
     Evaluate the discrete-time transfer function of a Component in the frequency domain.
 
