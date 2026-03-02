@@ -39,6 +39,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.signal import butter
 
 from loopkit.component import Component
@@ -299,3 +300,238 @@ class TwoStageLPFComponent(Component):
         self.TE = lf.TE
         self.TE.name = self.name
         self.TF = lf.TF
+
+
+def iir_from_sos(
+    sos: ArrayLike,
+    input_scale: float = 1.0,
+    output_scale: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Convert SOS format [b0, b1, b2, a0, a1, a2] to (nume, deno) with scaling.
+
+    Supports fixed-point DSP implementations (e.g. Simulink-style integer-scaled
+    coefficients like sosScaled26). For a single second-order section, the format
+    is [b0, b1, b2, a0, a1, a2]. The returned nume and deno are normalized so
+    deno[0] = 1, and the numerator is scaled by input_scale * output_scale.
+
+    Parameters
+    ----------
+    sos : array_like
+        Second-order section coefficients [b0, b1, b2, a0, a1, a2].
+    input_scale : float, optional
+        Input scaling factor (e.g. 2^-24). Default 1.0.
+    output_scale : float, optional
+        Output scaling factor (e.g. 2^-14). Default 1.0.
+
+    Returns
+    -------
+    nume : ndarray
+        Numerator coefficients [b0, b1, b2] (normalized, scaled).
+    deno : ndarray
+        Denominator coefficients [1, a1, a2] (a0=1 convention).
+
+    Examples
+    --------
+    >>> sos = [16777216, 33554432, 16777216, 16777216, -33181752, 16408629]
+    >>> nume, deno = iir_from_sos(sos, input_scale=2**-24, output_scale=2**-14)
+    """
+    sos_arr = np.atleast_1d(np.asarray(sos, dtype=float))
+    if sos_arr.size < 6:
+        raise ValueError("sos must have at least 6 elements [b0,b1,b2,a0,a1,a2]")
+    b0, b1, b2, a0, a1, a2 = sos_arr[:6]
+    if a0 == 0:
+        raise ValueError("sos a0 (denominator leading coefficient) must be non-zero")
+    scale = float(input_scale) * float(output_scale)
+    nume = np.array([b0 / a0, b1 / a0, b2 / a0]) * scale
+    deno = np.array([1.0, a1 / a0, a2 / a0])
+    return nume, deno
+
+
+class IIRFilterComponent(Component):
+    """
+    IIR filter from direct numerator/denominator coefficients.
+
+    Supports optional input/output scaling for fixed-point DSP implementations
+    (e.g. Simulink-style integer-scaled coefficients).
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    sps : float
+        Sample rate in Hz. Must be positive.
+    nume : array_like
+        Numerator coefficients [b0, b1, b2, ...] (z^-1 convention).
+    deno : array_like
+        Denominator coefficients [a0, a1, a2, ...]. If a0 != 1, coefficients
+        are normalized so a0=1.
+    input_scale : float, optional
+        Input scaling factor (e.g. 2^-24). Default 1.0.
+    output_scale : float, optional
+        Output scaling factor (e.g. 2^-14). Default 1.0.
+
+    Attributes
+    ----------
+    nume : ndarray
+        Numerator coefficients (normalized, scaled).
+    deno : ndarray
+        Denominator coefficients (a0=1).
+    input_scale : float
+        Input scaling factor.
+    output_scale : float
+        Output scaling factor.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        nume: ArrayLike,
+        deno: ArrayLike,
+        input_scale: float = 1.0,
+        output_scale: float = 1.0,
+    ) -> None:
+        name_s = _validate_str_non_empty("name", name)
+        sps_f = _validate_positive("sps", sps)
+        _validate_numeric("input_scale", input_scale)
+        _validate_numeric("output_scale", output_scale)
+
+        nume_arr = np.atleast_1d(np.asarray(nume, dtype=float))
+        deno_arr = np.atleast_1d(np.asarray(deno, dtype=float))
+
+        if nume_arr.size == 0:
+            raise ValueError("nume must be non-empty")
+        if deno_arr.size == 0:
+            raise ValueError("deno must be non-empty")
+        if deno_arr[0] == 0:
+            raise ValueError("deno[0] (leading coefficient) must be non-zero")
+
+        self._input_scale = float(input_scale)
+        self._output_scale = float(output_scale)
+        scale = self._input_scale * self._output_scale
+
+        # Normalize: a0=1
+        a0 = deno_arr[0]
+        deno_norm = deno_arr / a0
+        nume_norm = nume_arr / a0 * scale
+
+        super().__init__(
+            name_s,
+            sps_f,
+            nume=nume_norm,
+            deno=deno_norm,
+            unit=Dimension(dimensionless=True),
+        )
+        # Store original (pre-normalization, pre-scaling) for update_component
+        self._nume = np.array(nume_arr, copy=True)
+        self._deno = np.array(deno_arr, copy=True)
+        self.properties = {
+            "nume": (lambda: self.nume, self._set_nume),
+            "deno": (lambda: self.deno, self._set_deno),
+            "input_scale": (
+                lambda: self.input_scale,
+                lambda v: setattr(self, "input_scale", v),
+            ),
+            "output_scale": (
+                lambda: self.output_scale,
+                lambda v: setattr(self, "output_scale", v),
+            ),
+        }
+
+    def _set_nume(self, v: ArrayLike) -> None:
+        arr = np.atleast_1d(np.asarray(v, dtype=float))
+        if arr.size == 0:
+            raise ValueError("nume must be non-empty")
+        self._nume = arr
+        self.update_component()
+
+    def _set_deno(self, v: ArrayLike) -> None:
+        arr = np.atleast_1d(np.asarray(v, dtype=float))
+        if arr.size == 0:
+            raise ValueError("deno must be non-empty")
+        if arr[0] == 0:
+            raise ValueError("deno[0] must be non-zero")
+        self._deno = arr
+        self.update_component()
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> IIRFilterComponent:
+        new_obj = IIRFilterComponent.__new__(IIRFilterComponent)
+        new_obj.__init__(
+            self.name,
+            self.sps,
+            self._nume.copy(),
+            self._deno.copy(),
+            self._input_scale,
+            self._output_scale,
+        )
+        if getattr(self, "_loop", None) is not None:
+            new_obj._loop = self._loop
+        return new_obj
+
+    @property
+    def input_scale(self) -> float:
+        """Input scaling factor."""
+        return self._input_scale
+
+    @input_scale.setter
+    def input_scale(self, value: float) -> None:
+        self._input_scale = _validate_numeric("input_scale", value)
+        self.update_component()
+
+    @property
+    def output_scale(self) -> float:
+        """Output scaling factor."""
+        return self._output_scale
+
+    @output_scale.setter
+    def output_scale(self, value: float) -> None:
+        self._output_scale = _validate_numeric("output_scale", value)
+        self.update_component()
+
+    def update_component(self) -> None:
+        scale = self._input_scale * self._output_scale
+        a0 = self._deno[0]
+        if a0 == 0:
+            raise ValueError("deno[0] must be non-zero")
+        deno_norm = self._deno / a0
+        nume_norm = self._nume / a0 * scale
+        super().__init__(
+            self.name,
+            self.sps,
+            nume=nume_norm,
+            deno=deno_norm,
+            unit=Dimension(dimensionless=True),
+        )
+
+    @classmethod
+    def from_sos(
+        cls,
+        name: str,
+        sps: float,
+        sos: ArrayLike,
+        input_scale: float = 1.0,
+        output_scale: float = 1.0,
+    ) -> "IIRFilterComponent":
+        """
+        Create IIRFilterComponent from SOS format [b0, b1, b2, a0, a1, a2].
+
+        Parameters
+        ----------
+        name : str
+            Component name.
+        sps : float
+            Sample rate in Hz.
+        sos : array_like
+            Second-order section [b0, b1, b2, a0, a1, a2].
+        input_scale : float, optional
+            Input scaling factor. Default 1.0.
+        output_scale : float, optional
+            Output scaling factor. Default 1.0.
+
+        Returns
+        -------
+        IIRFilterComponent
+        """
+        nume, deno = iir_from_sos(sos, input_scale, output_scale)
+        return cls(name, sps, nume, deno, input_scale=1.0, output_scale=1.0)

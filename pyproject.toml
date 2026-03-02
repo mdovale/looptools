@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loopkit"
-version = "1.0.0"
-description = "A Python toolkit for Deep Frequency Modulation Interferometry."
+version = "1.0.1"
+description = "A Python library for modeling, analyzing, and simulating feedback control loops."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
 license = { file = "LICENSE" }

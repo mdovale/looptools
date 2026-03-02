@@ -31,7 +31,13 @@
 
 from loopkit.components._opamp import set_opamp_parameters, OpAmp_dict
 from loopkit.components.gains import MultiplierComponent, RightBitShiftComponent
-from loopkit.components.filters import LPFComponent, ButterworthLPFComponent, TwoStageLPFComponent
+from loopkit.components.filters import (
+    LPFComponent,
+    ButterworthLPFComponent,
+    TwoStageLPFComponent,
+    IIRFilterComponent,
+    iir_from_sos,
+)
 from loopkit.components.controllers import (
     PIControllerComponent,
     DoubleIntegratorComponent,
@@ -52,6 +58,8 @@ __all__ = [
     "LPFComponent",
     "ButterworthLPFComponent",
     "TwoStageLPFComponent",
+    "IIRFilterComponent",
+    "iir_from_sos",
     "PIControllerComponent",
     "DoubleIntegratorComponent",
     "PIIControllerComponent",
