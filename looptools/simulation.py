@@ -33,14 +33,16 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
+from __future__ import annotations
+
 import copy
 import logging
 import warnings
 from contextlib import contextmanager
-from itertools import product
-from typing import Any, Dict, List, Tuple, Callable, Sequence
+from typing import Any, Dict, Iterator, Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from joblib import Parallel, delayed
 from joblib.parallel import BatchCompletionCallBack
 from scipy.optimize import minimize, OptimizeResult
@@ -57,14 +59,14 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def tqdm_joblib(tqdm_object: tqdm) -> tqdm:
+def tqdm_joblib(tqdm_object: tqdm) -> Iterator[tqdm]:
     """
     Context manager to patch joblib to report progress into a tqdm bar.
     Note: Newer versions of joblib may have built-in support for tqdm,
     but this remains a reliable method.
     """
     class TqdmBatchCompletionCallback(BatchCompletionCallBack):
-        def __call__(self, *args, **kwargs):
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
             tqdm_object.update(n=self.batch_size)
             return super().__call__(*args, **kwargs)
 
@@ -86,7 +88,7 @@ def _calculate_point(
     deg: bool,
     unwrap_phase: bool,
     interpolate: bool,
-) -> Tuple[float, float, np.ndarray, np.ndarray]:
+) -> Tuple[float, float, NDArray[np.floating[Any]], NDArray[np.floating[Any]]]:
     """
     Worker function for parallel sweep. Calculates metrics for one parameter point.
 
@@ -103,7 +105,7 @@ def _calculate_point(
     phase_rad = np.angle(tf, deg=False)
     if unwrap_phase:
         phase_rad = np.unwrap(phase_rad)
-    
+
     phase = np.rad2deg(phase_rad) if deg else phase_rad
 
     ugf, pm = lm.get_margin(
@@ -159,16 +161,24 @@ def parameter_sweep_nd(
     ValueError
         If a parameter name in `param_grid` is not a valid property of the loop.
     """
-    # Validate parameter names before starting expensive computation
+    # Input validation
+    if not param_grid:
+        raise ValueError("param_grid must not be empty.")
     for name in param_grid.keys():
         if not hasattr(loop, name):
             raise ValueError(f"Property '{name}' not found on the provided loop object.")
+    freqs_arr = np.asarray(frequencies, dtype=np.float64)
+    if freqs_arr.size == 0:
+        raise ValueError("frequencies must not be empty.")
+    if np.any(freqs_arr <= 0):
+        raise ValueError("frequencies must be positive.")
+    if n_jobs == 0:
+        raise ValueError("n_jobs must not be zero.")
 
     param_names = list(param_grid.keys())
     sweep_axes = [np.asarray(param_grid[k]) for k in param_names]
-    mesh = np.meshgrid(*sweep_axes, indexing='ij')
+    mesh = np.meshgrid(*sweep_axes, indexing="ij")
     shape = mesh[0].shape
-    freqs_arr = np.asarray(frequencies)
     num_freqs = len(freqs_arr)
     total_points = np.prod(shape)
 
@@ -184,7 +194,7 @@ def parameter_sweep_nd(
     # Run tasks in parallel with a progress bar.
     # joblib uses loky/cloudpickle by default, which can serialize loop objects
     # containing lambdas (unlike stdlib pickle used by ProcessPoolExecutor).
-    with tqdm_joblib(tqdm(total=total_points, desc="Sweeping Parameters")) as pbar:
+    with tqdm_joblib(tqdm(total=total_points, desc="Sweeping Parameters")):
         results = Parallel(n_jobs=n_jobs, verbose=0)(
             delayed(_calculate_point)(
                 loop, params, freqs_arr, deg, unwrap_phase, interpolate
@@ -204,17 +214,17 @@ def parameter_sweep_nd(
     phase_arr = np.array(phase_flat).reshape(shape + (num_freqs,))
 
     return {
-        "parameter_names": param_names,
-        "parameter_grid": {name: mesh[i] for i, name in enumerate(param_names)},
-        "frequencies": freqs_arr,
+        "parameter_names": tuple(param_names),
+        "parameter_grid": {name: np.copy(mesh[i]) for i, name in enumerate(param_names)},
+        "frequencies": np.copy(freqs_arr),
         "metrics": {
-            "ugf": ugf_arr,
-            "phase_margin": pm_arr,
+            "ugf": np.copy(ugf_arr),
+            "phase_margin": np.copy(pm_arr),
         },
         "open_loop": {
-            "magnitude": mag_arr,
-            "phase": phase_arr,
-        }
+            "magnitude": np.copy(mag_arr),
+            "phase": np.copy(phase_arr),
+        },
     }
 
 
@@ -254,8 +264,16 @@ def parameter_sweep_1d(
     dict
         A dictionary with sweep results in a 1D-friendly format.
     """
+    if not prop_name or not isinstance(prop_name, str):
+        raise ValueError("prop_name must be a non-empty string.")
+    if not hasattr(loop, prop_name):
+        raise ValueError(f"Property '{prop_name}' not found on the provided loop object.")
+    values_arr = np.asarray(values)
+    if values_arr.size == 0:
+        raise ValueError("values must not be empty.")
+
     param_grid = {prop_name: values}
-    
+
     # Run the N-D sweep with n_jobs=1 (sequential) for a single-threaded 1D sweep
     results_nd = parameter_sweep_nd(
         loop, param_grid, frequencies, deg, unwrap_phase, interpolate, n_jobs=1
@@ -264,7 +282,7 @@ def parameter_sweep_1d(
     # Unpack and format results for the 1D case
     return {
         "parameter_name": prop_name,
-        "parameter_values": np.asarray(values),
+        "parameter_values": np.copy(values_arr),
         "frequencies": results_nd["frequencies"],
         "metrics": {
             "ugf": results_nd["metrics"]["ugf"],
@@ -337,7 +355,7 @@ def old_parameter_sweep_1d(
             _, ugf_tmp, margin_tmp = _loop.Gc.bode(2 * np.pi * freq_arr)
         
         asd_tmp, _, _, rms_tmp = _loop.noise_propagation_asd(
-            freq_arr, noise, _from=tf_from, _to=to_to, isTF=isTF, view=False
+            freq_arr, noise, _from=tf_from, _to=tf_to, isTF=isTF, view=False
         )
         
         ugf[i] = ugf_tmp
@@ -353,9 +371,9 @@ def loop_crossover_optimizer(
     loop2: LOOP,
     frfr: Sequence,
     desired_f_cross: float,
-    meta: Dict[str, Tuple],
+    meta: Dict[str, Tuple[float, float, float, bool]],
     method: str = "Nelder-Mead",
-    options: Dict = {"maxiter": 1000},
+    options: Optional[Dict[str, Any]] = None,
 ) -> Tuple[OptimizeResult, LOOP]:
     """
     Optimizes `loop1` parameters to match the crossover frequency of `loop2`.
@@ -382,16 +400,35 @@ def loop_crossover_optimizer(
     Tuple[scipy.optimize.OptimizeResult, LOOP]
         A tuple containing the optimization result object and the optimized loop copy.
     """
-    _loop_1 = copy.deepcopy(loop1)
-    freq_arr = np.asarray(frfr)
+    # Input validation
+    if desired_f_cross <= 0:
+        raise ValueError("desired_f_cross must be positive.")
+    if not meta:
+        raise ValueError("meta must not be empty.")
+    for name, spec in meta.items():
+        if len(spec) != 4:
+            raise ValueError(
+                f"meta['{name}'] must be (min, max, initial, is_int), got length {len(spec)}."
+            )
+        if not hasattr(loop1, name):
+            raise ValueError(f"Parameter '{name}' not found on loop1.")
 
-    def cost_function(x: np.ndarray, desired: float, meta_spec: dict,
-                      loop_to_opt: LOOP, ref_loop: LOOP) -> float:
+    opts = options if options is not None else {"maxiter": 1000}
+    _loop_1 = copy.deepcopy(loop1)
+    freq_arr = np.asarray(frfr, dtype=np.float64)
+
+    def cost_function(
+        x: np.ndarray,
+        desired: float,
+        meta_spec: Dict[str, Tuple[float, float, float, bool]],
+        loop_to_opt: LOOP,
+        ref_loop: LOOP,
+    ) -> float:
         for i, (attr, spec) in enumerate(meta_spec.items()):
             is_integer = spec[3]
             value = int(x[i]) if is_integer else x[i]
             setattr(loop_to_opt, attr, value)
-        
+
         f_cross = lm.loop_crossover(loop_to_opt, ref_loop, freq_arr)
         return (f_cross - desired)**2
 
@@ -401,14 +438,14 @@ def loop_crossover_optimizer(
     logger.info("# ===== Optimization start ==========")
     logger.info(f"    x0 = {x0}")
     logger.info(f"    bounds = {bounds}")
-  
+
     popt = minimize(
         fun=cost_function, 
         x0=x0, 
         bounds=bounds, 
         args=(desired_f_cross, meta, _loop_1, loop2), 
-        method=method, 
-        options=options
+        method=method,
+        options=opts,
     )
     
     # Apply final optimized parameters to the loop copy
@@ -428,11 +465,16 @@ def loop_crossover_optimizer(
     logger.info(f"    Achieved f_cross (Hz) = {final_f_cross:.4g}")
     logger.info(f"    Success = {popt.success}")
     logger.info(f"    Message = {popt.message}")
-    
+
     return popt, _loop_1
 
 
-def fit_delay(obj, measurement_frfr, measurement_phase, units='rad'):
+def fit_delay(
+    obj: Union[Component, LOOP],
+    measurement_frfr: ArrayLike,
+    measurement_phase: ArrayLike,
+    units: Literal["rad", "deg"] = "rad",
+) -> float:
     """
     Estimate the number of DSP delay samples that best aligns a model phase response
     with measured phase data, by minimizing mean squared phase error.
@@ -481,34 +523,47 @@ def fit_delay(obj, measurement_frfr, measurement_phase, units='rad'):
     """
     from scipy.optimize import minimize_scalar
 
+    # Input validation
+    if units not in ("rad", "deg"):
+        raise ValueError(
+            f"units must be 'rad' or 'deg', got {units!r}."
+        )
+    frfr = np.atleast_1d(np.asarray(measurement_frfr, dtype=np.float64))
+    phase_arr = np.atleast_1d(np.asarray(measurement_phase, dtype=np.float64))
+    if frfr.size != phase_arr.size:
+        raise ValueError(
+            f"measurement_frfr and measurement_phase must have same length, "
+            f"got {frfr.size} and {phase_arr.size}."
+        )
+    if frfr.size == 0:
+        raise ValueError("measurement_frfr and measurement_phase must not be empty.")
+
     if isinstance(obj, Component):
         tf_func = obj.TF
     elif isinstance(obj, LOOP):
         tf_func = obj.Gf
     else:
-        raise NotImplementedError(f"fit_delay: {obj} object not recognized")
-    
-    frfr = np.atleast_1d(measurement_frfr)
+        raise NotImplementedError(f"fit_delay: {obj!r} object not recognized.")
 
-    def phase_error(delay_samples):
+    def phase_error(delay_samples: float) -> float:
         c_delay = lc.DSPDelayComponent("_", sps=obj.sps, n_reg=delay_samples)
         tf_delay = c_delay.TF
 
-        tf_model = tf_func(frfr)*tf_delay(frfr)
+        tf_model = tf_func(frfr) * tf_delay(frfr)
         x = np.unwrap(np.angle(tf_model))
 
-        if units == 'rad':
-            u = np.unwrap(measurement_phase)
-        elif units == 'deg':
-            u = np.unwrap(measurement_phase, period=360)
-            u = np.pi*u/180.0
+        if units == "rad":
+            u = np.unwrap(phase_arr)
+        elif units == "deg":
+            u = np.unwrap(phase_arr, period=360)
+            u = np.pi * u / 180.0
         else:
-            raise ValueError(f"fit_delay: The phase must be specified in radians (rad) or degrees (deg), got: {units}")
+            raise ValueError(
+                f"units must be 'rad' or 'deg', got {units!r}."
+            )
 
-        return np.mean((u - x)**2)
+        return float(np.mean((u - x) ** 2))
 
-    result = minimize_scalar(phase_error, bounds=(0, 1000), method='bounded')
+    result = minimize_scalar(phase_error, bounds=(0, 1000), method="bounded")
 
-    return result.x
-
-    
+    return float(result.x)
