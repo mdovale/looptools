@@ -30,7 +30,8 @@
 """Loop implementations: PLL, laser locks (Moku, NPRO), and related models."""
 
 from looptools.loops.pll import PLL
-from looptools.loops.mokulaserlock import LaserLock, MokuLaserLock
+from looptools.loops.laserlock import LaserLock
+from looptools.loops.mokulaserlock import MokuLaserLock
 from looptools.loops.nprolaserlock import NPROLaserLock, LaserLockPZT, LaserLockTemp
 
 __all__ = [
