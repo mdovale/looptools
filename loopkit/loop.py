@@ -385,6 +385,7 @@ class LOOP:
         ImportError
             If the optional dependencies (PyMuPDF, pytikz, IPython) are not installed.
             Install with: pip install loopkit[diagram]
+            pytikz must be installed from git: pip install git+https://github.com/allefeld/pytikz.git
         """
         try:
             import fitz
@@ -393,7 +394,8 @@ class LOOP:
         except ImportError as e:
             raise ImportError(
                 "block_diagram() requires optional dependencies: PyMuPDF, pytikz, and IPython. "
-                "Install with: pip install loopkit[diagram]"
+                "Install with: pip install loopkit[diagram] and "
+                "pip install git+https://github.com/allefeld/pytikz.git"
             ) from e
 
         import html

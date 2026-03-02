@@ -21,12 +21,12 @@ dependencies = ["numpy", "scipy", "matplotlib", "tqdm", "control", "sympy", "job
 
 [project.optional-dependencies]
 dev = ["pytest", "build", "twine", "ruff"]
-diagram = ["PyMuPDF", "pytikz", "IPython"]
+diagram = ["PyMuPDF", "IPython"]
 
 [project.urls]
-Homepage = "https://github.com/mdovale/loopkit"
-Repository = "https://github.com/mdovale/loopkit"
-Issues = "https://github.com/mdovale/loopkit/issues"
+Homepage = "https://github.com/mdovale/LoopKit"
+Repository = "https://github.com/mdovale/LoopKit"
+Issues = "https://github.com/mdovale/LoopKit/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

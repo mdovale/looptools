@@ -29,6 +29,26 @@ The library is designed with scientific control systems in mind—especially app
 
 ---
 
+## 📦 Installation
+
+```bash
+pip install loopkit
+```
+
+For block diagram generation (`loop.block_diagram()`), install the optional dependencies:
+
+```bash
+pip install loopkit[diagram]
+```
+
+**Note:** `pytikz` is required for block diagrams but is not on PyPI. Install it from the allefeld fork:
+
+```bash
+pip install git+https://github.com/allefeld/pytikz.git
+```
+
+---
+
 ## 🚀 Quick Start
 
 ### Example
