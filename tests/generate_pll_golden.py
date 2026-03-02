@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from looptools.pll import PLL
+from looptools.loops import PLL
 from looptools.loopmath import get_margin
 
 # Parameters from pll-demo notebook (real-world PLL config)

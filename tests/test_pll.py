@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from looptools.loopmath import get_margin
-from looptools.pll import PLL
+from looptools.loops import PLL
 
 
 # -----------------------------------------------------------------------------

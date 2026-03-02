@@ -13,8 +13,8 @@
 #    and/or other materials provided with the distribution.
 
 # 3. Neither the name of the copyright holder nor the names of its
-#    contributors may be used to endorse or promote products derived from
-#    this software without specific prior written permission.
+#    contributors may be used to endorse or promote products derived from this
+#    software without specific prior written permission.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -30,7 +30,7 @@
 # This software may be subject to U.S. export control laws. By accepting this
 # software, the user agrees to comply with all applicable U.S. export laws and
 # regulations. User has the responsibility to obtain export licenses, or other
-# export authority as may be required before exporting such information to
+# export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
 from looptools.loop import LOOP

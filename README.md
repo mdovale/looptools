@@ -85,9 +85,18 @@ plt.show()
 
 ---
 
-## 🧪 Specialized Subclasses
+## 🧪 Specialized Loop Implementations
 
-- `NPROLaserLock(LOOP)`: Model for laser frequency stabilization of an NPRO laser using PZT and temperature control loops with digital PLL (i.e., phasemeter) readout.
+The `looptools.loops` subpackage provides pre-built loop models:
+
+- **`PLL`**: Digital phase-locked loop model.
+- **`MokuLaserLock`**: Laser frequency lock model for Moku hardware (heterodyne phase-locking).
+- **`NPROLaserLock`**: Composite model for NPRO laser frequency stabilization using PZT and temperature control loops with digital PLL (phasemeter) readout.
+- **`LaserLockPZT`**, **`LaserLockTemp`**: Building blocks for laser lock subsystems.
+
+```python
+from looptools.loops import PLL, MokuLaserLock, NPROLaserLock
+```
 
 ---
 
@@ -119,7 +128,7 @@ Contributions are welcome! We are especially interested in:
 
 ## 📜 License
 
-GNU GENERAL PUBLIC LICENSE Version 3.
+BSD 3-Clause License.
 
 ---
 
