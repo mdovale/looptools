@@ -33,38 +33,53 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import numpy as np
-import control
-import copy
-import itertools
-import warnings
+from __future__ import annotations
+
 import base64
+import copy
 import html
+import itertools
+import logging
+import warnings
 from functools import partial
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
+
+import control
+import matplotlib.pyplot as plt
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+
+from looptools import dsp
 from looptools.component import Component
 from looptools.dimension import Dimension
+from looptools.loopmath import tf_power_extrapolate
 from looptools.plots import default_rc
-from looptools.loopmath import *
-import matplotlib.pyplot as plt
-import logging
+
 logger = logging.getLogger(__name__)
 
 
 class LOOP:
-    def __init__(self, sps, component_list=None, name='Loop'):
+    def __init__(
+        self,
+        sps: float,
+        component_list: Optional[Sequence[Component]] = None,
+        name: str = "Loop",
+    ) -> None:
         """
         Base class for defining a control loop system.
 
-        This class manages loop components, their transfer functions, 
-        property delegation, and callback mechanisms. It is designed 
+        This class manages loop components, their transfer functions,
+        property delegation, and callback mechanisms. It is designed
         to facilitate dynamic loop configuration and simulation.
 
         Parameters
         ----------
         sps : float
             Loop sample rate in Hz.
-        component_list : list of Component
-            If provided, add all components in this list to the loop. 
+        component_list : sequence of Component, optional
+            If provided, add all components in this list to the loop.
+        name : str, optional
+            Name of the loop.
 
         Attributes
         ----------
@@ -79,8 +94,12 @@ class LOOP:
         Gc, Hc, Ec, Gf, Hf, Ef : object or None
             Transfer function components (control and feedback path elements).
         """
-        self.sps = sps
-        self.name = name
+        if not isinstance(sps, (int, float)) or sps <= 0:
+            raise ValueError(f"sps must be a positive number, got {sps!r}")
+        if name is None or not isinstance(name, str) or not str(name).strip():
+            raise ValueError(f"name must be a non-empty string, got {name!r}")
+        self.sps = float(sps)
+        self.name = str(name).strip()
         self.components_dict = {}
         self.property_list = []
         self.callbacks = []
@@ -102,7 +121,7 @@ class LOOP:
                 self.add_component(comp)
             self.update()
 
-    def update(self):
+    def update(self) -> None:
         """
         Compute transfer elements and prepare callable transfer functions of the loop.
 
@@ -144,25 +163,35 @@ class LOOP:
         self.phase_deg_unwrapped = lambda frfr: np.unwrap(self.phase_deg(frfr), period=360)
 
 
-    def notify_callbacks(self):
+    def notify_callbacks(self) -> None:
         """
         Execute all registered callback functions.
         """
         for callback, args, kwargs in self.callbacks:
             callback(*args, **kwargs)
         
-    def add_component(self, newcomp, loop_update=False):
+    def add_component(
+        self,
+        newcomp: Component,
+        loop_update: bool = False,
+    ) -> None:
         """
         Add a new component to the control loop.
 
         Parameters
         ----------
-        newcomp : object
+        newcomp : Component
             Component object to be added. Must have a non-empty `name` attribute.
         loop_update : bool, optional
             If True, updates the loop after adding the component.
+
+        Raises
+        ------
+        ValueError
+            If component has empty name or name already exists.
         """
-        assert (newcomp.name != None)&(newcomp.name != ''), logger.error("Attempting to add unnamed component")
+        if not newcomp.name or not str(newcomp.name).strip():
+            raise ValueError("Attempting to add unnamed component")
         if newcomp.name in self.components_dict:
             logger.error("Named component already exists in the System, use `replace_component` instead")
             return
@@ -172,7 +201,11 @@ class LOOP:
             if loop_update:
                 self.update()
 
-    def remove_component(self, name, loop_update=False):
+    def remove_component(
+        self,
+        name: str,
+        loop_update: bool = False,
+    ) -> None:
         """
         Remove a component from the loop by name.
 
@@ -182,13 +215,24 @@ class LOOP:
             Name of the component to remove.
         loop_update : bool, optional
             If True, updates the loop after removing the component.
+
+        Raises
+        ------
+        ValueError
+            If component name does not exist.
         """
-        assert name in self.components_dict, logger.error("Attempting to remove inexistent component")
+        if name not in self.components_dict:
+            raise ValueError(f"Attempting to remove inexistent component: {name!r}")
         del self.components_dict[name]
         if loop_update:
             self.update()
 
-    def replace_component(self, name, newcomp, loop_update=False):
+    def replace_component(
+        self,
+        name: str,
+        newcomp: Component,
+        loop_update: bool = False,
+    ) -> None:
         """
         Replace an existing component with a new one.
 
@@ -196,17 +240,29 @@ class LOOP:
         ----------
         name : str
             Name of the component to replace.
-        newcomp : object
+        newcomp : Component
             New component object.
         loop_update : bool, optional
             If True, updates the loop after replacement.
+
+        Raises
+        ------
+        ValueError
+            If component name does not exist.
         """
-        assert name in self.components_dict, logger.error("Attempting to replace inexistent component")
+        if name not in self.components_dict:
+            raise ValueError(f"Attempting to replace inexistent component: {name!r}")
         self.components_dict[name] = newcomp
         if loop_update:
             self.update()
 
-    def update_component(self, component, property, newvalue, loop_update=False):
+    def update_component(
+        self,
+        component: str,
+        prop_name: str,
+        newvalue: Any,
+        loop_update: bool = False,
+    ) -> None:
         """
         Update a specific property of a component in the loop.
 
@@ -214,20 +270,35 @@ class LOOP:
         ----------
         component : str
             Name of the component to modify.
-        property : str
+        prop_name : str
             Property name to update.
         newvalue : any
             New value to set.
         loop_update : bool, optional
             If True, updates the loop after modifying the property.
+
+        Raises
+        ------
+        ValueError
+            If component or property does not exist.
         """
-        assert component in self.components_dict, logger.error("Attempting to update inexistent component")
-        assert property in self.components_dict[component].properties,  logger.error("Attempting to modify inexistent component attribute")
-        self.components_dict[component].properties[property][1](newvalue)
+        if component not in self.components_dict:
+            raise ValueError(f"Attempting to update inexistent component: {component!r}")
+        comp = self.components_dict[component]
+        if getattr(comp, "properties", None) is None or prop_name not in comp.properties:
+            raise ValueError(
+                f"Attempting to modify inexistent component attribute: {prop_name!r}"
+            )
+        comp.properties[prop_name][1](newvalue)
         if loop_update:
             self.update()
 
-    def register_callback(self, callback, *args, **kwargs):
+    def register_callback(
+        self,
+        callback: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         """
         Register a callback function to be executed on trigger.
 
@@ -242,7 +313,7 @@ class LOOP:
         """
         self.callbacks.append((callback, args, kwargs))
         
-    def register_component_properties(self):
+    def register_component_properties(self) -> None:
         """
         Register delegators for all properties of components in the loop.
         """
@@ -251,7 +322,11 @@ class LOOP:
                 for prop in comp.properties:
                     self.create_property_delegator(name, prop)
         
-    def create_property_delegator(self, component_name, prop_name):
+    def create_property_delegator(
+        self,
+        component_name: str,
+        prop_name: str,
+    ) -> None:
         """
         Create dynamic getter and setter for a component property.
 
@@ -270,13 +345,18 @@ class LOOP:
             setattr(self.components_dict[component_name], prop_name, value)
 
         # Create a new property on the fly and attach it to the class
-        sys_property_name = component_name+'_'+prop_name
+        sys_property_name = component_name + "_" + prop_name
 
         setattr(self.__class__, sys_property_name, property(get_prop, set_prop))
 
         self.property_list.append(sys_property_name)
 
-    def block_diagram(self, dpi=150, filename=None, transfer_functions=True):
+    def block_diagram(
+        self,
+        dpi: int = 150,
+        filename: Optional[str] = None,
+        transfer_functions: bool = True,
+    ) -> Optional[Any]:
         """
         Generate a TikZ block diagram of the LOOP structure.
 
@@ -516,7 +596,20 @@ coordinate (loop_corner) at (\\n1,\\n2);
         pic._append(tikz.Raw('\n'.join(code)))
         render_and_display(pic)
 
-    def magnitude_plot(self, frfr, figsize=(5, 4), title=None, which='G', ax=None, label=None, label_prefix=None, legend=True, dB=False, *args, **kwargs):
+    def magnitude_plot(
+        self,
+        frfr: ArrayLike,
+        figsize: Tuple[float, float] = (5, 4),
+        title: Optional[str] = None,
+        which: Union[str, Sequence[str]] = "G",
+        ax: Optional[Any] = None,
+        label: Optional[str] = None,
+        label_prefix: Optional[str] = None,
+        legend: bool = True,
+        dB: bool = False,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         """
         Plot the magnitude of selected loop transfer functions at specified frequencies.
 
@@ -601,7 +694,20 @@ coordinate (loop_corner) at (\\n1,\\n2);
             fig.tight_layout()
             return ax
 
-    def bode_plot(self, frfr, figsize=(5,5), title=None, which='all', axes=None, label=None, label_prefix=None, legend=True, dB=False, *args, **kwargs):
+    def bode_plot(
+        self,
+        frfr: ArrayLike,
+        figsize: Tuple[float, float] = (5, 5),
+        title: Optional[str] = None,
+        which: Union[str, Sequence[str]] = "all",
+        axes: Optional[Tuple[Any, Any]] = None,
+        label: Optional[str] = None,
+        label_prefix: Optional[str] = None,
+        legend: bool = True,
+        dB: bool = False,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Tuple[Any, Any]:
         """Plot the Bode diagram of the loop's Gf, Hf, and Ef.
 
         Parameters
@@ -696,10 +802,22 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
             return (ax_mag, ax_phase)
         
-    def nyquist_plot(self, frfr, which='all', critical_point=False,
-                    arrow_scale=1.0, arrow_frequency=None,
-                    figsize=(4, 4), title=None, ax=None, label="",
-                    logx=False, logy=False, *args, **kwargs):
+    def nyquist_plot(
+        self,
+        frfr: ArrayLike,
+        which: Union[str, Sequence[str]] = "all",
+        critical_point: bool = False,
+        arrow_scale: float = 1.0,
+        arrow_frequency: Optional[float] = None,
+        figsize: Tuple[float, float] = (4, 4),
+        title: Optional[str] = None,
+        ax: Optional[Any] = None,
+        label: Union[str, bool] = "",
+        logx: bool = False,
+        logy: bool = False,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         """
         Plot the Nyquist diagram of the loop's Gf, Hf, and Ef transfer functions.
 
@@ -821,7 +939,15 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
             return ax
         
-    def noise_propagation_t(self, tau, noise, unit=Dimension(dimensionless=True), _from='PD', _to=None, view=False):
+    def noise_propagation_t(
+        self,
+        tau: ArrayLike,
+        noise: ArrayLike,
+        unit: Optional[Dimension] = None,
+        _from: str = "PD",
+        _to: Optional[str] = None,
+        view: bool = False,
+    ) -> Tuple[NDArray[np.floating[Any]], Dimension]:
         """
         Propagate a time-domain noise signal through a defined segment of the loop.
 
@@ -845,6 +971,8 @@ coordinate (loop_corner) at (\\n1,\\n2);
         tuple
             (noise_prop, unit_prop), the propagated noise signal and its resulting unit.
         """
+        if unit is None:
+            unit = Dimension(dimensionless=True)
         component = self.point_to_point_component(_from, _to, suppression=True, view=view)
         pll_response = control.forced_response(component.TE, T=tau, U=noise)
         noise_prop = pll_response.outputs
@@ -852,7 +980,16 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
         return noise_prop, unit_prop
 
-    def noise_propagation_asd(self, f, asd, unit=Dimension(dimensionless=True), _from='PD', _to=None, view=False, isTF=True):
+    def noise_propagation_asd(
+        self,
+        f: ArrayLike,
+        asd: ArrayLike,
+        unit: Optional[Dimension] = None,
+        _from: str = "PD",
+        _to: Optional[str] = None,
+        view: bool = False,
+        isTF: bool = True,
+    ) -> Tuple[NDArray[np.floating[Any]], Dimension, dict, float]:
         """
         Propagate a noise ASD through a defined segment of the loop.
 
@@ -882,29 +1019,35 @@ coordinate (loop_corner) at (\\n1,\\n2);
             - Bode dictionary with 'f', 'mag', 'phase'
             - RMS value of the propagated ASD
         """
+        if unit is None:
+            unit = Dimension(dimensionless=True)
 
-        # : compute the transfer function through the propagation path
+        # Compute the transfer function through the propagation path
         component = self.point_to_point_component(_from, _to, suppression=True, view=view)
 
-        # : compute TF
+        # Compute TF
         if isTF:
             TF = self.point_to_point_tf(f, _from, _to, suppression=True, view=False)
             mag = abs(TF)
             phase = np.angle(TF, deg=False)
-            bode={'f':f, 'mag':mag, 'phase':phase}
+            bode = {"f": f, "mag": mag, "phase": phase}
         else:
             bode, _, _ = component.bode(2*np.pi*f)
 
-        # : compute the noise ASD
+        # Compute the noise ASD
         asd_prop = bode['mag'] * asd
         unit_prop = component.unit * unit
 
-        # : compute RMS of the new ASD
+        # Compute RMS of the new ASD
         rms = dsp.integral_rms(f, asd_prop, [0, np.inf])
 
         return asd_prop, unit_prop, bode, rms
 
-    def collect_components(self, _from=None, _to=None):
+    def collect_components(
+        self,
+        _from: Optional[str] = None,
+        _to: Optional[str] = None,
+    ) -> Tuple[List[Component], str]:
         """
         Collect a list of components between two loop nodes.
 
@@ -926,10 +1069,11 @@ coordinate (loop_corner) at (\\n1,\\n2);
         if _to is None:
             return [], ""
 
-        keys = self.components_dict.keys()
-        if _from is not None: assert _from in keys, logger.error("Starting component does not exist")
-        if _to is not None: assert _to in keys, logger.error("End component does not exist")
         keys = list(self.components_dict.keys())
+        if _from is not None and _from not in keys:
+            raise ValueError(f"Starting component does not exist: {_from!r}")
+        if _to is not None and _to not in keys:
+            raise ValueError(f"End component does not exist: {_to!r}")
         propagation_path = "->"
         
         compo_list = []
@@ -938,7 +1082,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
         if _from is not None:
             start_index = keys.index(_from)
-            if (_from == _to)or(_to == None):
+            if _from == _to or _to is None:
                 sequence = keys[start_index:] + keys[:start_index]
             else:
                 end_index = keys.index(_to)
@@ -957,7 +1101,13 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
         return compo_list, propagation_path
 
-    def point_to_point_component(self, _from=None, _to=None, suppression=False, view=False):
+    def point_to_point_component(
+        self,
+        _from: Optional[str] = None,
+        _to: Optional[str] = None,
+        suppression: bool = False,
+        view: bool = False,
+    ) -> Component:
         """
         Compute a compound component representing a segment of the loop.
 
@@ -995,7 +1145,14 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
         return output
 
-    def point_to_point_tf(self, f, _from, _to=None, suppression=False, view=False):
+    def point_to_point_tf(
+        self,
+        f: ArrayLike,
+        _from: str,
+        _to: Optional[str] = None,
+        suppression: bool = False,
+        view: bool = False,
+    ) -> NDArray[np.complexfloating[Any, Any]]:
         """
         Compute a compound transfer function for a defined loop segment.
 
@@ -1032,7 +1189,17 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
         return output
 
-    def tf_series(self, f, components=None, mode=None, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
+    def tf_series(
+        self,
+        f: ArrayLike,
+        components: Optional[Sequence[Component]] = None,
+        mode: Optional[str] = None,
+        extrapolate: bool = False,
+        f_trans: float = 1e-1,
+        power: float = -2,
+        size: int = 2,
+        solver: bool = True,
+    ) -> NDArray[np.complexfloating[Any, Any]]:
         """
         Compute the frequency-domain transfer function product for a series of components.
 
