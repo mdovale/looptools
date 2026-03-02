@@ -30,13 +30,15 @@
 """Loop implementations: PLL, laser locks (Moku, NPRO), and related models."""
 
 from loopkit.loops.pll import PLL
-from loopkit.loops.laserlock import LaserLock
+from loopkit.loops.laserlock import LaserLock, MultiRateLaserLock
+
 from loopkit.loops.mokulaserlock import MokuLaserLock
 from loopkit.loops.nprolaserlock import NPROLaserLock, LaserLockPZT, LaserLockTemp
 
 __all__ = [
     "PLL",
     "LaserLock",
+    "MultiRateLaserLock",
     "MokuLaserLock",
     "NPROLaserLock",
     "LaserLockPZT",

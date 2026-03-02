@@ -361,30 +361,30 @@ class TestLOOPCollectComponents:
 class TestLOOPPointToPoint:
     """Tests for point_to_point_component and point_to_point_tf."""
 
-    def test_point_to_point_component_no_suppression(
+    def test_point_to_point_component_open_loop(
         self, loop_two_components
     ):
         """point_to_point_component returns product along path."""
         comp = loop_two_components.point_to_point_component(
-            _from="G", _to="I", suppression=False
+            _from="G", _to="I", closed=False
         )
         assert comp is not None
         assert comp.TE is not None
         assert comp.TF is not None
 
-    def test_point_to_point_component_with_suppression(
+    def test_point_to_point_component_closed_loop(
         self, loop_two_components
     ):
-        """point_to_point_component with suppression includes E."""
+        """point_to_point_component with closed=True includes E."""
         comp = loop_two_components.point_to_point_component(
-            _from="G", _to=None, suppression=True
+            _from="G", _to=None, closed=True
         )
         assert comp is not None
 
     def test_point_to_point_tf(self, loop_two_components, frequency_array):
         """point_to_point_tf returns frequency response of path."""
         tf = loop_two_components.point_to_point_tf(
-            frequency_array, _from="G", _to="I", suppression=False
+            frequency_array, _from="G", _to="I", closed=False
         )
         assert tf.shape == frequency_array.shape
         assert np.all(np.isfinite(tf))

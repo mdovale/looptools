@@ -282,7 +282,7 @@ class PLL(LOOP):
         self,
         _from: Optional[str] = None,
         _to: Optional[str] = None,
-        suppression: bool = False,
+        closed: bool = False,
         view: bool = False,
     ) -> Component:
         """
@@ -294,8 +294,8 @@ class PLL(LOOP):
             Name of the starting component.
         _to : str, optional
             Name of the stopping component. This component is *not* included.
-        suppression : bool, optional
-            If True, apply loop suppression factor 1 / (1 + G). Default is False.
+        closed : bool, optional
+            If True, apply closed-loop transfer factor 1 / (1 + G). Default is False.
         view : bool, optional
             If True, print details about the path and resulting transfer element.
 
@@ -305,7 +305,7 @@ class PLL(LOOP):
             Transfer element between the specified components.
         """
         return super().point_to_point_component(
-            _from, _to, suppression=suppression, view=view
+            _from, _to, closed=closed, view=view
         )
 
     def point_to_point_tf(
@@ -313,7 +313,7 @@ class PLL(LOOP):
         f: ArrayLike,
         _from: str,
         _to: Optional[str] = None,
-        suppression: bool = False,
+        closed: bool = False,
         view: bool = False,
     ) -> NDArray[np.complexfloating[Any, Any]]:
         """
@@ -327,8 +327,8 @@ class PLL(LOOP):
             Name of the starting component.
         _to : str, optional
             Name of the stopping component. This component is *not* included.
-        suppression : bool, optional
-            If True, apply loop suppression factor 1 / (1 + G). Default is False.
+        closed : bool, optional
+            If True, apply closed-loop transfer factor 1 / (1 + G). Default is False.
         view : bool, optional
             If True, print details about the path and resulting transfer function.
 
@@ -338,5 +338,5 @@ class PLL(LOOP):
             Complex frequency response of the transfer function between components.
         """
         return super().point_to_point_tf(
-            f, _from, _to=_to, suppression=suppression, view=view
+            f, _from, _to=_to, closed=closed, view=view
         )

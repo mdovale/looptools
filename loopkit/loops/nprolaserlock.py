@@ -328,7 +328,7 @@ class NPROLaserLock:
         from_pll = "PD"
         to_pll = "PD" if mode == "phase" else "PA"
         pll_inst = pll.point_to_point_component(
-            _from=from_pll, _to=to_pll, suppression=True
+            _from=from_pll, _to=to_pll, closed=True
         )
         if mode == "frequency":
             fpll = _extrapolate["Fpll"]

@@ -35,6 +35,8 @@
 #
 from __future__ import annotations
 
+import logging
+from functools import partial
 from typing import Optional, Sequence, Tuple
 
 import numpy as np
@@ -42,7 +44,72 @@ import numpy as np
 import loopkit.components as lc
 import loopkit.loopmath as lm
 from loopkit.component import Component
+from loopkit.dimension import Dimension
 from loopkit.loop import LOOP
+
+logger = logging.getLogger(__name__)
+
+# Default SOS coefficients from Simulink PLL (sosScaled26)
+_DEFAULT_SOS = [16777216, 33554432, 16777216, 16777216, -33181752, 16408629]
+
+
+def _default_laser_plant(sps: float) -> Component:
+    """Create default laser dynamics plant from PLL-SPEC (lasTFb, lasTFa)."""
+    nume = np.array([
+        -52937.5288030121, 59309.27023733428,
+        52938.33203142742, -59308.466786107,
+    ])
+    deno = np.array([
+        1.0, -2.98154285463868, 2.9631583948738554, -0.9816155352742084,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    ])
+    return Component(
+        "Laser", sps, nume=nume, deno=deno,
+        unit=Dimension(dimensionless=True),
+    )
+
+
+def _validate_multirate_params(
+    sps_loop: float,
+    sps_adc: float,
+    amp: float,
+    kp: float,
+    ki: float,
+    n_reg: int,
+    off: Tuple[str, ...],
+) -> None:
+    """Validate MultiRateLaserLock constructor parameters."""
+    if not isinstance(sps_loop, (int, float)) or sps_loop <= 0:
+        raise ValueError(f"sps_loop must be positive, got {sps_loop!r}")
+    if not isinstance(sps_adc, (int, float)) or sps_adc <= 0:
+        raise ValueError(f"sps_adc must be positive, got {sps_adc!r}")
+    if sps_adc < sps_loop:
+        raise ValueError(
+            f"sps_adc must be >= sps_loop for downsampling. "
+            f"Got sps_adc={sps_adc}, sps_loop={sps_loop}"
+        )
+    ratio = sps_adc / sps_loop
+    if abs(ratio - round(ratio)) > 1e-9:
+        raise ValueError(
+            f"sps_adc/sps_loop must be an integer. Got {ratio}"
+        )
+    if not isinstance(amp, (int, float)) or amp <= 0:
+        raise ValueError(f"Amp must be positive, got {amp!r}")
+    if not isinstance(kp, (int, float)):
+        raise ValueError(f"Kp must be numeric, got {type(kp).__name__}")
+    if not isinstance(ki, (int, float)):
+        raise ValueError(f"Ki must be numeric, got {type(ki).__name__}")
+    if not isinstance(n_reg, int) or n_reg < 0:
+        raise ValueError(f"n_reg must be non-negative int, got {n_reg!r}")
+    valid_names = frozenset((
+        "PD", "IIR", "RateTransition", "PIII", "Delay", "DAC",
+        "Laser", "PreGain", "PA", "LUT",
+    ))
+    for item in off:
+        if item not in valid_names:
+            raise ValueError(
+                f"off must contain only {sorted(valid_names)}, got {item!r}"
+            )
 
 
 def _validate_laserlock_params(
@@ -219,3 +286,344 @@ class LaserLock(LOOP):
 
         self.update()
         self.register_component_properties()
+
+
+class MultiRateLaserLock(LOOP):
+    """
+    Multi-rate optical PLL for heterodyne laser locking (Simulink PLL topology).
+
+    Supports different sample rates for the ADC path (sps_adc) and loop path (sps_loop).
+    When sps_adc > sps_loop, a RateTransitionComponent models the 40→20 MHz downsampling.
+
+    Topology: PD → IIR → [RateTransition] → PIII → Delay → DAC → Laser → PreGain → VCO (PA + LUT)
+
+    Parameters
+    ----------
+    sps_loop : float
+        Loop update rate in Hz (e.g. 20e6 for fLoop).
+    sps_adc : float, optional
+        ADC/sensor path rate in Hz (e.g. 40e6). Default: same as sps_loop (single-rate).
+    Amp : float
+        Phase detector amplitude (normalized).
+    Kp : float
+        Proportional gain (linear, e.g. 5000).
+    Ki : float
+        Integral gain (linear, e.g. 4000).
+    sos : sequence of float, optional
+        IIR filter SOS coefficients. Default: Simulink sosScaled26.
+    Plant : Component, optional
+        Laser dynamics. Default: discrete TF from PLL-SPEC.
+    dac_gain : float, optional
+        DAC gain. Default 2/2^16.
+    pre_gain : float, optional
+        Pre-loop gain. Default 0.1.
+    n_reg : int, optional
+        Pipeline delay (samples). Default 1.
+    iir_input_scale : float, optional
+        IIR input scaling. Default 2^-24.
+    iir_output_scale : float, optional
+        IIR output scaling. Default 2^-14.
+    off : sequence of str, optional
+        Component names to exclude.
+    name : str, optional
+        Loop name.
+    """
+
+    def __init__(
+        self,
+        sps_loop: float,
+        Amp: float,
+        Kp: float,
+        Ki: float,
+        *,
+        sps_adc: Optional[float] = None,
+        sos: Optional[Sequence[float]] = None,
+        Plant: Optional[Component] = None,
+        dac_gain: float = 2 / 2**16,
+        pre_gain: float = 0.1,
+        n_reg: int = 1,
+        iir_input_scale: float = 2**-24,
+        iir_output_scale: float = 2**-14,
+        off: Optional[Sequence[str]] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        _sps_adc = float(sps_loop) if sps_adc is None else float(sps_adc)
+        _off: Tuple[str, ...] = () if off is None else tuple(str(x) for x in off)
+        _validate_multirate_params(
+            sps_loop, _sps_adc, Amp, Kp, Ki, n_reg, _off,
+        )
+
+        super().__init__(sps_loop, name=name or "MultiRateLaserLock")
+
+        self._sps_adc = _sps_adc
+        self._sps_loop = float(sps_loop)
+        self._amp = float(Amp)
+        self._kp = float(Kp)
+        self._ki = float(Ki)
+        self._n_reg = int(n_reg)
+        self._dac_gain = float(dac_gain)
+        self._pre_gain = float(pre_gain)
+        self._off = _off
+        self._sos = list(sos) if sos is not None else _DEFAULT_SOS
+        self._multirate = _sps_adc > sps_loop
+        _plant = Plant if Plant is not None else _default_laser_plant(sps_loop)
+
+        # High-rate path (sps_adc): PD, IIR, [RateTransition]
+        if "PD" not in _off:
+            self.add_component(lc.PDComponent("PD", _sps_adc, self._amp))
+
+        if "IIR" not in _off:
+            self.add_component(
+                lc.IIRFilterComponent.from_sos(
+                    "IIR", _sps_adc, self._sos,
+                    input_scale=iir_input_scale,
+                    output_scale=iir_output_scale,
+                )
+            )
+
+        if self._multirate and "RateTransition" not in _off:
+            self.add_component(
+                lc.RateTransitionComponent(
+                    "RateTransition", sps_in=_sps_adc, sps_out=sps_loop,
+                )
+            )
+
+        # Low-rate path (sps_loop)
+        if "PIII" not in _off:
+            self.add_component(
+                lc.PIControllerComponent(
+                    "PIII", sps_loop, self._kp, self._ki, gain_scale="linear"
+                )
+            )
+
+        if "Delay" not in _off:
+            self.add_component(lc.DSPDelayComponent("Delay", sps_loop, self._n_reg))
+
+        if "DAC" not in _off:
+            self.add_component(
+                lc.MultiplierComponent(
+                    "DAC", sps_loop, self._dac_gain,
+                    unit=Dimension(dimensionless=True),
+                )
+            )
+
+        if "Laser" not in _off:
+            self.add_component(_plant)
+
+        if "PreGain" not in _off:
+            self.add_component(
+                lc.MultiplierComponent(
+                    "PreGain", sps_loop, self._pre_gain,
+                    unit=Dimension(dimensionless=True),
+                )
+            )
+
+        if "PA" not in _off:
+            self.add_component(lc.PAComponent("PA", sps_loop))
+        if "LUT" not in _off:
+            self.add_component(lc.LUTComponent("LUT", sps_loop))
+
+        if _off:
+            logger.warning("MultiRateLaserLock: excluded components: %s", _off)
+
+        self.update()
+        self.register_component_properties()
+
+    @property
+    def sps_adc(self) -> float:
+        """ADC/sensor path sample rate."""
+        return self._sps_adc
+
+    @property
+    def sps_loop(self) -> float:
+        """Loop update rate."""
+        return self._sps_loop
+
+    @property
+    def Amp(self) -> float:
+        """Phase detector amplitude."""
+        return self._amp
+
+    @property
+    def Kp(self) -> float:
+        """Proportional gain (linear)."""
+        return self._kp
+
+    @property
+    def Ki(self) -> float:
+        """Integral gain (linear)."""
+        return self._ki
+
+    @property
+    def n_reg(self) -> int:
+        """Pipeline delay (samples)."""
+        return self._n_reg
+
+    @property
+    def dac_gain(self) -> float:
+        """DAC gain."""
+        return self._dac_gain
+
+    @property
+    def pre_gain(self) -> float:
+        """Pre-loop gain."""
+        return self._pre_gain
+
+    @property
+    def off(self) -> Tuple[str, ...]:
+        """Excluded component names."""
+        return self._off
+
+    @property
+    def multirate(self) -> bool:
+        """True if sps_adc != sps_loop."""
+        return self._multirate
+
+    def update(self) -> None:
+        """Override: handle multi-rate by computing Gc numerically when needed."""
+        import control
+        if not self._multirate:
+            super().update()
+            return
+
+        # Multi-rate: components have different sps; control.series fails.
+        # Build Gc as a Component with custom TF that multiplies each component's TF.
+        # Use a placeholder TE for compatibility; actual response from tf_series.
+        import control
+        placeholder = control.tf([1.0], [1.0], 1 / self.sps)
+        self.Gc = Component("G", self.sps, tf=placeholder, unit=Dimension(dimensionless=True))
+        self.Gc.TF = partial(self._multirate_tf, mode=None)
+
+        H_TE = control.feedback(placeholder, 1)
+        self.Hc = Component("H", self.sps, tf=H_TE, unit=self.Gc.unit)
+        self.Hc.TF = partial(self._multirate_tf, mode="H")
+
+        E_TE = control.feedback(1, placeholder)
+        self.Ec = Component("E", self.sps, tf=E_TE, unit=self.Gc.unit)
+        self.Ec.TF = partial(self._multirate_tf, mode="E")
+
+        def _get_phase(tf_func, frfr, deg):
+            return np.angle(tf_func(frfr), deg=deg)
+
+        def _get_magnitude(tf_func, frfr, dB):
+            mag = np.abs(tf_func(frfr))
+            return control.mag2db(mag) if dB else mag
+
+        self.Gf = partial(self.tf_series, mode=None)
+        self.Hf = partial(self.tf_series, mode="H")
+        self.Ef = partial(self.tf_series, mode="E")
+        self.phase = lambda frfr: _get_phase(self.Gf, frfr, deg=False)
+        self.phase_deg = lambda frfr: _get_phase(self.Gf, frfr, deg=True)
+        self.mag = lambda frfr: _get_magnitude(self.Gf, frfr, dB=False)
+        self.mag_dB = lambda frfr: _get_magnitude(self.Gf, frfr, dB=True)
+        self.phase_unwrapped = lambda frfr: np.unwrap(self.phase(frfr))
+        self.phase_deg_unwrapped = lambda frfr: np.unwrap(self.phase_deg(frfr), period=360)
+
+        if getattr(self, "_loop", None) is None and hasattr(self, "callbacks"):
+            for cb in self.callbacks:
+                cb()
+
+    def _multirate_tf(
+        self,
+        f: np.ndarray,
+        mode: Optional[str] = None,
+    ) -> np.ndarray:
+        """Compute multi-rate loop TF by multiplying each component at its own sps."""
+        tf = self.tf_series(f=f, mode=mode)
+        return tf
+
+    def tf_series(
+        self,
+        f,
+        components=None,
+        mode=None,
+        extrapolate=False,
+        f_trans=1e-1,
+        power=-2,
+        size=2,
+        solver=True,
+    ):
+        """Override: multiply each component's TF at its own sps for multi-rate."""
+        from loopkit.loopmath import tf_power_extrapolate
+
+        if components is None:
+            comps = list(self.components_dict.values())
+        else:
+            comps = list(components)
+
+        tf = np.ones(np.atleast_1d(f).shape, dtype=complex)
+        for comp in comps:
+            tf *= comp.TF(f=f)
+
+        if mode is None:
+            output = tf
+        elif mode == "H":
+            output = tf / (1 + tf)
+        elif mode == "E":
+            output = 1 / (1 + tf)
+        else:
+            raise ValueError(f"invalid mode {mode}")
+
+        if extrapolate:
+            output = tf_power_extrapolate(f, output, f_trans=f_trans, power=power, size=size, solver=solver)
+        return output
+
+    def point_to_point_component(
+        self,
+        _from: Optional[str] = None,
+        _to: Optional[str] = None,
+        closed: bool = False,
+        view: bool = False,
+    ) -> Component:
+        """Override: use tf_series for multi-rate (avoids np.prod of mixed-rate components)."""
+        import copy
+        compo_list, propagation_path = self.collect_components(_from, _to)
+        if closed:
+            compo_list.append(self.Ec)
+        if _from == _to and closed:
+            return copy.deepcopy(self.Hc)
+        if not compo_list:
+            return Component("empty", self.sps, 1.0, 1.0)
+        if len(compo_list) == 1:
+            out = compo_list[0]
+        else:
+            comps = compo_list
+            unit = comps[0].unit
+            composite = Component("path", self.sps, np.array([1.0]), np.array([1.0]), unit=unit)
+            def _tf(f, c=comps):
+                val = np.ones(np.atleast_1d(f).shape, dtype=complex)
+                for x in c:
+                    val *= x.TF(f=f)
+                return val
+            composite.TF = _tf
+            out = composite
+        if view:
+            print(f"propagation path: {propagation_path}")
+        return out
+
+    def __deepcopy__(self, memo: dict) -> "MultiRateLaserLock":
+        laser = self.components_dict.get("Laser")
+        plant = None
+        if laser is not None:
+            plant = Component(
+                laser.name, self.sps,
+                nume=np.array(laser.nume, copy=True),
+                deno=np.array(laser.deno, copy=True),
+                unit=laser.unit,
+            )
+        new_obj: MultiRateLaserLock = MultiRateLaserLock.__new__(MultiRateLaserLock)
+        new_obj.__init__(
+            self._sps_loop,
+            self._amp,
+            self._kp,
+            self._ki,
+            sps_adc=self._sps_adc,
+            sos=self._sos,
+            Plant=plant,
+            dac_gain=self._dac_gain,
+            pre_gain=self._pre_gain,
+            n_reg=self._n_reg,
+            off=self._off,
+        )
+        new_obj.callbacks = self.callbacks
+        return new_obj

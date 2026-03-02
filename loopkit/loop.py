@@ -975,7 +975,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
         """
         if unit is None:
             unit = Dimension(dimensionless=True)
-        component = self.point_to_point_component(_from, _to, suppression=True, view=view)
+        component = self.point_to_point_component(_from, _to, closed=True, view=view)
         pll_response = control.forced_response(component.TE, T=tau, U=noise)
         noise_prop = pll_response.outputs
         unit_prop = component.unit * unit
@@ -1025,11 +1025,11 @@ coordinate (loop_corner) at (\\n1,\\n2);
             unit = Dimension(dimensionless=True)
 
         # Compute the transfer function through the propagation path
-        component = self.point_to_point_component(_from, _to, suppression=True, view=view)
+        component = self.point_to_point_component(_from, _to, closed=True, view=view)
 
         # Compute TF
         if isTF:
-            TF = self.point_to_point_tf(f, _from, _to, suppression=True, view=False)
+            TF = self.point_to_point_tf(f, _from, _to, closed=True, view=False)
             mag = abs(TF)
             phase = np.angle(TF, deg=False)
             bode = {"f": f, "mag": mag, "phase": phase}
@@ -1107,14 +1107,14 @@ coordinate (loop_corner) at (\\n1,\\n2);
         self,
         _from: Optional[str] = None,
         _to: Optional[str] = None,
-        suppression: bool = False,
+        closed: bool = False,
         view: bool = False,
     ) -> Component:
         """
         Compute a compound component representing a segment of the loop.
 
         This component reflects a product of all components between `_from` and `_to`,
-        optionally applying error suppression (i.e., multiplying by E(z)).
+        optionally applying closed-loop transfer (i.e., multiplying by E(z)).
 
         Parameters
         ----------
@@ -1122,8 +1122,8 @@ coordinate (loop_corner) at (\\n1,\\n2);
             Starting component name.
         _to : str, optional
             Stopping component name (excluded).
-        suppression : bool, optional
-            If True, apply suppression using E(z).
+        closed : bool, optional
+            If True, apply closed-loop transfer using E(z).
         view : bool, optional
             Print propagation path if True.
 
@@ -1136,10 +1136,10 @@ coordinate (loop_corner) at (\\n1,\\n2);
         compo_list, propagation_path = self.collect_components(_from, _to)
 
         # : compute an output component
-        if suppression:
+        if closed:
             compo_list.append(self.Ec)
         output = np.prod(compo_list)
-        if (_from == _to) and suppression: # WARNING: just a temporal solution to this case
+        if (_from == _to) and closed: # WARNING: just a temporal solution to this case
             output = copy.deepcopy(self.Hc)
 
         if view:
@@ -1152,7 +1152,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
         f: ArrayLike,
         _from: str,
         _to: Optional[str] = None,
-        suppression: bool = False,
+        closed: bool = False,
         view: bool = False,
     ) -> NDArray[np.complexfloating[Any, Any]]:
         """
@@ -1166,8 +1166,8 @@ coordinate (loop_corner) at (\\n1,\\n2);
             Starting component name.
         _to : str, optional
             Stopping component name (excluded).
-        suppression : bool, optional
-            If True, apply suppression using E(z).
+        closed : bool, optional
+            If True, apply closed-loop transfer using E(z).
         view : bool, optional
             Print propagation path if True.
 
@@ -1181,7 +1181,7 @@ coordinate (loop_corner) at (\\n1,\\n2);
 
         # : compute an output transfer function
         output = self.tf_series(f=f, components=compo_list)
-        if suppression:
+        if closed:
             output *= self.Ef(f=f)
         if _from == _to: # WARNING: just a temporal solution to this case
             output = self.Hf(f=f)

@@ -269,22 +269,22 @@ class TestPLLPointToPoint:
     def test_point_to_point_component_pd_to_lpf(self, pll_default):
         """point_to_point_component returns TE for PD to LPF path."""
         comp = pll_default.point_to_point_component(
-            _from="PD", _to="LPF", suppression=False
+            _from="PD", _to="LPF", closed=False
         )
         assert comp is not None
         assert comp.TE is not None
 
-    def test_point_to_point_component_with_suppression(self, pll_default):
-        """point_to_point_component with suppression includes E."""
+    def test_point_to_point_component_closed_loop(self, pll_default):
+        """point_to_point_component with closed=True includes E."""
         comp = pll_default.point_to_point_component(
-            _from="PD", _to=None, suppression=True
+            _from="PD", _to=None, closed=True
         )
         assert comp is not None
 
     def test_point_to_point_tf(self, pll_default, frequency_array):
         """point_to_point_tf returns frequency response of path."""
         tf = pll_default.point_to_point_tf(
-            frequency_array, _from="PD", _to="LPF", suppression=False
+            frequency_array, _from="PD", _to="LPF", closed=False
         )
         assert tf.shape == frequency_array.shape
         assert np.all(np.isfinite(tf))
@@ -292,7 +292,7 @@ class TestPLLPointToPoint:
     def test_point_to_point_tf_full_loop(self, pll_default, frequency_array):
         """point_to_point_tf with _from==_to gives full loop."""
         tf = pll_default.point_to_point_tf(
-            frequency_array, _from="PD", _to="PD", suppression=False
+            frequency_array, _from="PD", _to="PD", closed=False
         )
         assert tf.shape == frequency_array.shape
         assert np.all(np.isfinite(tf))
@@ -397,20 +397,20 @@ class TestPLLRegressionGolden:
         """point_to_point_tf(PD, LPF) matches golden reference."""
         frfr = golden_data["frfr"]
         tf = pll_golden.point_to_point_tf(
-            frfr, _from="PD", _to="LPF", suppression=False
+            frfr, _from="PD", _to="LPF", closed=False
         )
         np.testing.assert_allclose(
             tf, golden_data["tf_pd_to_lpf"], rtol=1e-10, atol=1e-14
         )
 
-    def test_point_to_point_pd_suppressed_matches_golden(
+    def test_point_to_point_pd_closed_matches_golden(
         self, pll_golden, golden_data
     ):
-        """point_to_point_tf(PD, None, suppression=True) matches golden."""
+        """point_to_point_tf(PD, None, closed=True) matches golden."""
         frfr = golden_data["frfr"]
         tf = pll_golden.point_to_point_tf(
-            frfr, _from="PD", _to=None, suppression=True
+            frfr, _from="PD", _to=None, closed=True
         )
         np.testing.assert_allclose(
-            tf, golden_data["tf_pd_suppressed"], rtol=1e-10, atol=1e-14
+            tf, golden_data["tf_pd_closed"], rtol=1e-10, atol=1e-14
         )

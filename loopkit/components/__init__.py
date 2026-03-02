@@ -46,6 +46,7 @@ from loopkit.components.controllers import (
     MokuPIDController,
 )
 from loopkit.components.delay import DSPDelayComponent
+from loopkit.components.rate import DownsampleComponent, RateTransitionComponent
 from loopkit.components.pll_components import PDComponent, PAComponent, LUTComponent
 from loopkit.components.actuators import ActuatorComponent, ImplicitAccumulatorComponent, LeadLagComponent
 
@@ -66,6 +67,8 @@ __all__ = [
     "MokuPIDSymbolicController",
     "MokuPIDController",
     "DSPDelayComponent",
+    "DownsampleComponent",
+    "RateTransitionComponent",
     "PAComponent",
     "LUTComponent",
     "ActuatorComponent",

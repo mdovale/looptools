@@ -58,11 +58,11 @@ def main():
     ugf, phase_margin = get_margin(Gf, FRFR, deg=True)
 
     # Point-to-point transfer (PD -> LPF segment)
-    tf_pd_to_lpf = pll.point_to_point_tf(FRFR, _from="PD", _to="LPF", suppression=False)
+    tf_pd_to_lpf = pll.point_to_point_tf(FRFR, _from="PD", _to="LPF", closed=False)
 
-    # Point-to-point with suppression (PD to end, error suppression)
-    tf_pd_suppressed = pll.point_to_point_tf(
-        FRFR, _from="PD", _to=None, suppression=True
+    # Point-to-point closed-loop (PD to end, includes E(z))
+    tf_pd_closed = pll.point_to_point_tf(
+        FRFR, _from="PD", _to=None, closed=True
     )
 
     np.savez_compressed(
@@ -74,14 +74,14 @@ def main():
         ugf=np.array(ugf),
         phase_margin=np.array(phase_margin),
         tf_pd_to_lpf=tf_pd_to_lpf,
-        tf_pd_suppressed=tf_pd_suppressed,
+        tf_pd_closed=tf_pd_closed,
     )
 
     with open(golden_dir / "pll_golden_params.json", "w") as f:
         json.dump(PARAMS, f, indent=2)
 
     print(f"Golden file written to {golden_dir}/")
-    print(f"  pll_golden.npz: frfr, Gf, Hf, Ef, ugf, phase_margin, tf_pd_to_lpf, tf_pd_suppressed")
+    print(f"  pll_golden.npz: frfr, Gf, Hf, Ef, ugf, phase_margin, tf_pd_to_lpf, tf_pd_closed")
     print(f"  pll_golden_params.json: {PARAMS}")
     print(f"  ugf = {ugf:.6e} Hz, phase_margin = {phase_margin:.4f} deg")
 
