@@ -286,7 +286,7 @@ class LaserLockPZT(LOOP):
 
         # : Overall gain stage 1
         if "Fgain1" not in off:
-            self.add_component(LeftBitShiftComponent("Fgain1", self.sps, C1))
+            self.add_component(RightBitShiftComponent("Fgain1", self.sps, C1))
 
         # : PZT digital controller
         if "Fctrl1" not in off:
@@ -423,14 +423,14 @@ class LaserLockTemp(LOOP):
 
         # : Overall gain stage 1
         if "Fgain1" not in off:
-            self.add_component(LeftBitShiftComponent("Fgain1", self.sps, C1))
+            self.add_component(RightBitShiftComponent("Fgain1", self.sps, C1))
 
         # : PZT digital controller
         self.add_component(DoubleIntegratorComponent("Fctrl1", self.sps, Ki1, Kii1, extrapolate))
 
         # : Overall gain stage 2
         if "Fgain2" not in off:
-            self.add_component(LeftBitShiftComponent("Fgain2", self.sps, C2))
+            self.add_component(RightBitShiftComponent("Fgain2", self.sps, C2))
 
         # : Temperature digital controller
         if "Fctrl2" not in off:

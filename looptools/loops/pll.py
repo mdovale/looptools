@@ -93,7 +93,7 @@ class PLL(LOOP):
 
         # : Gain
         if "Gain" not in but:
-            self.add_component(LeftBitShiftComponent("Gain", self.sps, Cshift))
+            self.add_component(RightBitShiftComponent("Gain", self.sps, Cshift))
 
         # : PI controller
         if "PI" not in but:

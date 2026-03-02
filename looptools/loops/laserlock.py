@@ -63,7 +63,7 @@ class LaserLock(LOOP):
     LPF_n : int
         Butterworth LPF number of stages.
     Cshift : int
-        Gain reduction stage, number of bits for LeftBitShift.
+        Gain reduction stage, number of bits for RightBitShift.
     Kp_db : float
         P-gain (dB).
     f_I : float, optional
@@ -145,7 +145,7 @@ class LaserLock(LOOP):
             self.add_component(lc.ButterworthLPFComponent("LPF", sps_mixer, LPF_cutoff, LPF_n))
 
         if "Gain" not in off:
-            self.add_component(lc.LeftBitShiftComponent("Gain", sps_mixer, Cshift))
+            self.add_component(lc.RightBitShiftComponent("Gain", sps_mixer, Cshift))
 
         if "Servo" not in off:
             self.add_component(lc.MokuPIDController("Servo", sps, Kp_db, f_I, f_II, None, f_trans=f_trans))
