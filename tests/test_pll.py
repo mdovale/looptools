@@ -69,6 +69,46 @@ def frequency_array():
 
 
 # -----------------------------------------------------------------------------
+# Validation tests
+# -----------------------------------------------------------------------------
+
+
+class TestPLLValidation:
+    """Tests for PLL input validation."""
+
+    def test_invalid_sps_raises(self):
+        """Invalid sps raises ValueError."""
+        with pytest.raises(ValueError, match="sps must be a positive number"):
+            PLL(sps=0, Amp=0.5, Cshift=4, Klf=0.5, Kp=2, Ki=3)
+        with pytest.raises(ValueError, match="sps must be a positive number"):
+            PLL(sps=-1, Amp=0.5, Cshift=4, Klf=0.5, Kp=2, Ki=3)
+
+    def test_invalid_amp_raises(self):
+        """Invalid Amp raises ValueError."""
+        with pytest.raises(ValueError, match="Amp must be positive"):
+            PLL(sps=SPS, Amp=0, Cshift=4, Klf=0.5, Kp=2, Ki=3)
+
+    def test_invalid_cshift_raises(self):
+        """Invalid Cshift raises ValueError."""
+        with pytest.raises(ValueError, match="Cshift must be a non-negative int"):
+            PLL(sps=SPS, Amp=0.5, Cshift=-1, Klf=0.5, Kp=2, Ki=3)
+
+    def test_invalid_but_raises(self):
+        """Invalid but raises ValueError or TypeError."""
+        with pytest.raises(ValueError, match="but must contain only"):
+            PLL(SPS, Amp=0.5, Cshift=4, Klf=0.5, Kp=2, Ki=3, but=["INVALID"])
+        with pytest.raises(TypeError, match="but must be a sequence"):
+            PLL(SPS, Amp=0.5, Cshift=4, Klf=0.5, Kp=2, Ki=3, but="PD")
+
+    def test_but_immutable(self, pll_default):
+        """but returns immutable tuple."""
+        result = pll_default.but
+        assert isinstance(result, tuple)
+        with pytest.raises((TypeError, AttributeError)):
+            result.append("PD")  # type: ignore[union-attr]
+
+
+# -----------------------------------------------------------------------------
 # Construction tests
 # -----------------------------------------------------------------------------
 
@@ -98,7 +138,7 @@ class TestPLLConstruction:
         assert pll_default.Ki == 3
         assert pll_default.twostages is True
         assert pll_default.n_reg == 10
-        assert pll_default.but == [None]
+        assert pll_default.but == (None,)
 
     def test_construction_full_component_chain(self, pll_default):
         """PLL with but=[None] includes all standard components."""
