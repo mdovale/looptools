@@ -33,11 +33,23 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
-import numpy as np
+from __future__ import annotations
+
 from functools import partial
+from typing import Any, Optional, Tuple
+
+import numpy as np
+
+import looptools.loopmath as lm
 from looptools.component import Component
 from looptools.dimension import Dimension
-import looptools.loopmath as lm
+
+from looptools.components._validation import (
+    _validate_extrapolate,
+    _validate_numeric,
+    _validate_optional_positive,
+    _validate_positive,
+)
 
 
 class PIControllerComponent(Component):
@@ -66,19 +78,38 @@ class PIControllerComponent(Component):
         Integral gain.
     """
 
-    def __init__(self, name, sps, Kp, Ki):
-        self._Kp = 2 ** float(Kp)
-        self._Ki = 2 ** float(Ki)
-        P = Component("P", sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        I = Component("I", sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        PI = P + I
-        super().__init__(name, sps, PI.nume, PI.deno, unit=PI.unit)
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Kp: float,
+        Ki: float,
+    ) -> None:
+        sps_f = _validate_positive("sps", sps)
+        self._Kp = 2 ** _validate_numeric("Kp", Kp)
+        self._Ki = 2 ** _validate_numeric("Ki", Ki)
+        p_comp = Component(
+            "P",
+            sps_f,
+            np.array([self._Kp]),
+            np.array([1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        i_comp = Component(
+            "I",
+            sps_f,
+            np.array([self._Ki]),
+            np.array([1.0, -1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        pi_comp = p_comp + i_comp
+        super().__init__(name, sps_f, pi_comp.nume, pi_comp.deno, unit=pi_comp.unit)
         self.properties = {
             "Kp": (lambda: self.Kp, lambda value: setattr(self, "Kp", value)),
             "Ki": (lambda: self.Ki, lambda value: setattr(self, "Ki", value)),
         }
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> PIControllerComponent:
         new_obj = PIControllerComponent.__new__(PIControllerComponent)
         new_obj.__init__(self.name, self.sps, np.log2(self._Kp), np.log2(self._Ki))
         if getattr(self, "_loop", None) is not None:
@@ -86,28 +117,40 @@ class PIControllerComponent(Component):
         return new_obj
 
     @property
-    def Kp(self):
+    def Kp(self) -> float:
         return self._Kp
 
     @Kp.setter
-    def Kp(self, value):
-        self._Kp = 2 ** float(value)
+    def Kp(self, value: float) -> None:
+        self._Kp = 2 ** _validate_numeric("Kp", value)
         self.update_component()
 
     @property
-    def Ki(self):
+    def Ki(self) -> float:
         return self._Ki
 
     @Ki.setter
-    def Ki(self, value):
-        self._Ki = 2 ** float(value)
+    def Ki(self, value: float) -> None:
+        self._Ki = 2 ** _validate_numeric("Ki", value)
         self.update_component()
 
-    def update_component(self):
-        P = Component("P", self.sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        PI = P + I
-        super().__init__(self.name, self.sps, PI.nume, PI.deno, unit=PI.unit)
+    def update_component(self) -> None:
+        p_comp = Component(
+            "P",
+            self.sps,
+            np.array([self._Kp]),
+            np.array([1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        i_comp = Component(
+            "I",
+            self.sps,
+            np.array([self._Ki]),
+            np.array([1.0, -1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        pi_comp = p_comp + i_comp
+        super().__init__(self.name, self.sps, pi_comp.nume, pi_comp.deno, unit=pi_comp.unit)
 
 
 class DoubleIntegratorComponent(Component):
@@ -135,57 +178,118 @@ class DoubleIntegratorComponent(Component):
         Gain of the second integrator.
     """
 
-    def __init__(self, name, sps, Ki, Kii, extrapolate):
-        self.extrapolate = extrapolate
-        self._Ki = 2 ** float(Ki)
-        self._Kii = 2 ** float(Kii)
-        I = Component("I", sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(dimensionless=True))
-        II = Component("II", sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=Dimension(dimensionless=True))
-        II.TF = partial(II.TF, extrapolate=self.extrapolate[0], f_trans=self.extrapolate[1], power=-2)
-        DoubleI = I + II
-        super().__init__(name, sps, DoubleI.nume, DoubleI.deno, unit=DoubleI.unit)
-        self.TE = DoubleI.TE
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Ki: float,
+        Kii: float,
+        extrapolate: Tuple[bool, float],
+    ) -> None:
+        sps_f = _validate_positive("sps", sps)
+        self._extrapolate: Tuple[bool, float] = _validate_extrapolate(extrapolate)
+        self._Ki = 2 ** _validate_numeric("Ki", Ki)
+        self._Kii = 2 ** _validate_numeric("Kii", Kii)
+        i_comp = Component(
+            "I",
+            sps_f,
+            np.array([self._Ki]),
+            np.array([1.0, -1.0]),
+            unit=Dimension(dimensionless=True),
+        )
+        ii_comp = Component(
+            "II",
+            sps_f,
+            np.array([self._Kii]),
+            np.array([1.0, -2.0, 1.0]),
+            unit=Dimension(dimensionless=True),
+        )
+        ii_comp.TF = partial(
+            ii_comp.TF,
+            extrapolate=self._extrapolate[0],
+            f_trans=self._extrapolate[1],
+            power=-2,
+        )
+        double_i = i_comp + ii_comp
+        super().__init__(
+            name, sps_f, double_i.nume, double_i.deno, unit=double_i.unit
+        )
+        self.TE = double_i.TE
         self.TE.name = name
-        self.TF = partial(lm.add_transfer_function, tf1=I.TF, tf2=II.TF)
+        self.TF = partial(
+            lm.add_transfer_function, tf1=i_comp.TF, tf2=ii_comp.TF
+        )
         self.properties = {
             "Ki": (lambda: self.Ki, lambda value: setattr(self, "Ki", value)),
             "Kii": (lambda: self.Kii, lambda value: setattr(self, "Kii", value)),
         }
 
-    def __deepcopy__(self, memo):
+    @property
+    def extrapolate(self) -> Tuple[bool, float]:
+        """Immutable (enable, f_trans) tuple for double-integrator extrapolation."""
+        return self._extrapolate
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> DoubleIntegratorComponent:
         new_obj = DoubleIntegratorComponent.__new__(DoubleIntegratorComponent)
-        new_obj.__init__(self.name, self.sps, np.log2(self._Ki), np.log2(self._Kii), self.extrapolate)
+        new_obj.__init__(
+            self.name,
+            self.sps,
+            np.log2(self._Ki),
+            np.log2(self._Kii),
+            self._extrapolate,
+        )
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
 
     @property
-    def Ki(self):
+    def Ki(self) -> float:
         return self._Ki
 
     @Ki.setter
-    def Ki(self, value):
-        self._Ki = 2 ** (value)
+    def Ki(self, value: float) -> None:
+        self._Ki = 2 ** _validate_numeric("Ki", value)
         self.update_component()
 
     @property
-    def Kii(self):
+    def Kii(self) -> float:
         return self._Kii
 
     @Kii.setter
-    def Kii(self, value):
-        self._Kii = 2 ** (value)
+    def Kii(self, value: float) -> None:
+        self._Kii = 2 ** _validate_numeric("Kii", value)
         self.update_component()
 
-    def update_component(self):
-        I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(dimensionless=True))
-        II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=Dimension(dimensionless=True))
-        II.TF = partial(II.TF, extrapolate=self.extrapolate[0], f_trans=self.extrapolate[1], power=-2)
-        DoubleI = I + II
-        super().__init__(self.name, self.sps, DoubleI.nume, DoubleI.deno, unit=DoubleI.unit)
-        self.TE = DoubleI.TE
+    def update_component(self) -> None:
+        i_comp = Component(
+            "I",
+            self.sps,
+            np.array([self._Ki]),
+            np.array([1.0, -1.0]),
+            unit=Dimension(dimensionless=True),
+        )
+        ii_comp = Component(
+            "II",
+            self.sps,
+            np.array([self._Kii]),
+            np.array([1.0, -2.0, 1.0]),
+            unit=Dimension(dimensionless=True),
+        )
+        ii_comp.TF = partial(
+            ii_comp.TF,
+            extrapolate=self._extrapolate[0],
+            f_trans=self._extrapolate[1],
+            power=-2,
+        )
+        double_i = i_comp + ii_comp
+        super().__init__(
+            self.name, self.sps, double_i.nume, double_i.deno, unit=double_i.unit
+        )
+        self.TE = double_i.TE
         self.TE.name = self.name
-        self.TF = partial(lm.add_transfer_function, tf1=I.TF, tf2=II.TF)
+        self.TF = partial(
+            lm.add_transfer_function, tf1=i_comp.TF, tf2=ii_comp.TF
+        )
 
 
 class PIIControllerComponent(Component):
@@ -222,24 +326,65 @@ class PIIControllerComponent(Component):
         Second integrator gain.
     """
 
-    def __init__(self, name, sps, Kp, Ki, Kii, extrapolate=(False, 1e2)):
-        self.sps = sps
-        self.extrapolate = extrapolate
-        self._Kp = 2 ** float(Kp)
-        self._Ki = 2 ** float(Ki)
-        self._Kii = 2 ** float(Kii)
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Kp: float,
+        Ki: float,
+        Kii: float,
+        extrapolate: Tuple[bool, float] = (False, 1e2),
+    ) -> None:
+        sps_f = _validate_positive("sps", sps)
+        self._extrapolate: Tuple[bool, float] = _validate_extrapolate(extrapolate)
+        self._Kp = 2 ** _validate_numeric("Kp", Kp)
+        self._Ki = 2 ** _validate_numeric("Ki", Ki)
+        self._Kii = 2 ** _validate_numeric("Kii", Kii)
 
-        P = Component("P", sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        I = Component("I", sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        II = Component("II", sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        II.TF = partial(II.TF, extrapolate=self.extrapolate[0], f_trans=self.extrapolate[1], power=-2)
+        p_comp = Component(
+            "P",
+            sps_f,
+            np.array([self._Kp]),
+            np.array([1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        i_comp = Component(
+            "I",
+            sps_f,
+            np.array([self._Ki]),
+            np.array([1.0, -1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        ii_comp = Component(
+            "II",
+            sps_f,
+            np.array([self._Kii]),
+            np.array([1.0, -2.0, 1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        ii_comp.TF = partial(
+            ii_comp.TF,
+            extrapolate=self._extrapolate[0],
+            f_trans=self._extrapolate[1],
+            power=-2,
+        )
 
-        PII = P + I + II
-        super().__init__(name, sps, PII.nume, PII.deno, unit=PII.unit)
+        pii_comp = p_comp + i_comp + ii_comp
+        super().__init__(
+            name, sps_f, pii_comp.nume, pii_comp.deno, unit=pii_comp.unit
+        )
 
-        self.TE = PII.TE
+        self.TE = pii_comp.TE
         self.TE.name = name
-        self.TF = partial(lm.add_transfer_function, tf1=P.TF, tf2=partial(lm.add_transfer_function, tf1=I.TF, tf2=II.TF))
+        self.TF = partial(
+            lm.add_transfer_function,
+            tf1=p_comp.TF,
+            tf2=partial(
+                lm.add_transfer_function,
+                tf1=i_comp.TF,
+                tf2=ii_comp.TF,
+            ),
+        )
 
         self.properties = {
             "Kp": (lambda: self.Kp, lambda value: setattr(self, "Kp", value)),
@@ -247,50 +392,99 @@ class PIIControllerComponent(Component):
             "Kii": (lambda: self.Kii, lambda value: setattr(self, "Kii", value)),
         }
 
-    def __deepcopy__(self, memo):
+    @property
+    def extrapolate(self) -> Tuple[bool, float]:
+        """Immutable (enable, f_trans) tuple for double-integrator extrapolation."""
+        return self._extrapolate
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> PIIControllerComponent:
         new_obj = PIIControllerComponent.__new__(PIIControllerComponent)
-        new_obj.__init__(self.name, self.sps, np.log2(self._Kp), np.log2(self._Ki), np.log2(self._Kii), self.extrapolate)
+        new_obj.__init__(
+            self.name,
+            self.sps,
+            np.log2(self._Kp),
+            np.log2(self._Ki),
+            np.log2(self._Kii),
+            self._extrapolate,
+        )
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
 
     @property
-    def Kp(self):
+    def Kp(self) -> float:
         return self._Kp
 
     @Kp.setter
-    def Kp(self, value):
-        self._Kp = 2 ** float(value)
+    def Kp(self, value: float) -> None:
+        self._Kp = 2 ** _validate_numeric("Kp", value)
         self.update_component()
 
     @property
-    def Ki(self):
+    def Ki(self) -> float:
         return self._Ki
 
     @Ki.setter
-    def Ki(self, value):
-        self._Ki = 2 ** float(value)
+    def Ki(self, value: float) -> None:
+        self._Ki = 2 ** _validate_numeric("Ki", value)
         self.update_component()
 
     @property
-    def Kii(self):
+    def Kii(self) -> float:
         return self._Kii
 
     @Kii.setter
-    def Kii(self, value):
-        self._Kii = 2 ** float(value)
+    def Kii(self, value: float) -> None:
+        self._Kii = 2 ** _validate_numeric("Kii", value)
         self.update_component()
 
-    def update_component(self):
-        P = Component("P", self.sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        II.TF = partial(II.TF, extrapolate=self.extrapolate[0], f_trans=self.extrapolate[1], power=-2)
-        PII = P + I + II
-        super().__init__(self.name, self.sps, PII.nume, PII.deno, unit=PII.unit)
-        self.TE = PII.TE
+    def update_component(self) -> None:
+        p_comp = Component(
+            "P",
+            self.sps,
+            np.array([self._Kp]),
+            np.array([1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        i_comp = Component(
+            "I",
+            self.sps,
+            np.array([self._Ki]),
+            np.array([1.0, -1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        ii_comp = Component(
+            "II",
+            self.sps,
+            np.array([self._Kii]),
+            np.array([1.0, -2.0, 1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        ii_comp.TF = partial(
+            ii_comp.TF,
+            extrapolate=self._extrapolate[0],
+            f_trans=self._extrapolate[1],
+            power=-2,
+        )
+        pii_comp = p_comp + i_comp + ii_comp
+        super().__init__(
+            self.name,
+            self.sps,
+            pii_comp.nume,
+            pii_comp.deno,
+            unit=pii_comp.unit,
+        )
+        self.TE = pii_comp.TE
         self.TE.name = self.name
-        self.TF = partial(lm.add_transfer_function, tf1=P.TF, tf2=partial(lm.add_transfer_function, tf1=I.TF, tf2=II.TF))
+        self.TF = partial(
+            lm.add_transfer_function,
+            tf1=p_comp.TF,
+            tf2=partial(
+                lm.add_transfer_function,
+                tf1=i_comp.TF,
+                tf2=ii_comp.TF,
+            ),
+        )
 
 
 class MokuPIDSymbolicController(Component):
@@ -327,15 +521,24 @@ class MokuPIDSymbolicController(Component):
         Crossover frequencies in Hz.
     """
 
-    def __init__(self, name, sps, Kp_dB, Fc_i=None, Fc_ii=None, Fc_d=None, f_trans=None):
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Kp_dB: float,
+        Fc_i: Optional[float] = None,
+        Fc_ii: Optional[float] = None,
+        Fc_d: Optional[float] = None,
+        f_trans: Optional[float] = None,
+    ) -> None:
         self.name = name
-        self.sps = sps
-        self.f_trans = f_trans
+        self.sps = _validate_positive("sps", sps)
+        self.f_trans = _validate_optional_positive("f_trans", f_trans)
 
-        self._Kp_dB = Kp_dB
-        self._Fc_i = Fc_i
-        self._Fc_ii = Fc_ii
-        self._Fc_d = Fc_d
+        self._Kp_dB = _validate_numeric("Kp_dB", Kp_dB)
+        self._Fc_i = _validate_optional_positive("Fc_i", Fc_i)
+        self._Fc_ii = _validate_optional_positive("Fc_ii", Fc_ii)
+        self._Fc_d = _validate_optional_positive("Fc_d", Fc_d)
 
         self.update_component()
 
@@ -349,7 +552,7 @@ class MokuPIDSymbolicController(Component):
             "Fc_d": (lambda: self.Fc_d, lambda value: setattr(self, "Fc_d", value)),
         }
 
-    def update_component(self):
+    def update_component(self) -> None:
         tf_str = self.moku_pid_tf_string(
             self.sps,
             Kp_dB=self._Kp_dB,
@@ -379,7 +582,17 @@ class MokuPIDSymbolicController(Component):
             self._Kd = 0.0
 
     @staticmethod
-    def moku_pid_tf_string(sps, Kp_dB=0.0, Ki_dB=None, Kii_dB=None, Kd_dB=None, Fc_i=None, Fc_ii=None, Fc_d=None, f_trans=None):
+    def moku_pid_tf_string(
+        sps: float,
+        Kp_dB: float = 0.0,
+        Ki_dB: Optional[float] = None,
+        Kii_dB: Optional[float] = None,
+        Kd_dB: Optional[float] = None,
+        Fc_i: Optional[float] = None,
+        Fc_ii: Optional[float] = None,
+        Fc_d: Optional[float] = None,
+        f_trans: Optional[float] = None,
+    ) -> str:
         Kp_log2 = lm.db_to_log2_gain(Kp_dB)
         Kp = 2 ** Kp_log2
 
@@ -422,72 +635,84 @@ class MokuPIDSymbolicController(Component):
         )
 
     @property
-    def Kp_dB(self):
+    def Kp_dB(self) -> float:
         return self._Kp_dB
 
     @Kp_dB.setter
-    def Kp_dB(self, value):
-        self._Kp_dB = float(value)
+    def Kp_dB(self, value: float) -> None:
+        self._Kp_dB = _validate_numeric("Kp_dB", value)
         self.update_component()
 
     @property
-    def Ki_dB(self):
-        return None if self._Ki == 0.0 else lm.log2_gain_to_db(np.log2(self._Ki))
+    def Ki_dB(self) -> Optional[float]:
+        return (
+            None
+            if self._Ki == 0.0
+            else lm.log2_gain_to_db(np.log2(self._Ki))
+        )
 
     @Ki_dB.setter
-    def Ki_dB(self, value):
+    def Ki_dB(self, value: float) -> None:
         self._Fc_i = None
-        self._Ki = 2 ** lm.db_to_log2_gain(value)
+        self._Ki = 2 ** lm.db_to_log2_gain(_validate_numeric("Ki_dB", value))
         self.update_component()
 
     @property
-    def Kii_dB(self):
-        return None if self._Kii == 0.0 else lm.log2_gain_to_db(np.log2(self._Kii))
+    def Kii_dB(self) -> Optional[float]:
+        return (
+            None
+            if self._Kii == 0.0
+            else lm.log2_gain_to_db(np.log2(self._Kii))
+        )
 
     @Kii_dB.setter
-    def Kii_dB(self, value):
+    def Kii_dB(self, value: float) -> None:
         self._Fc_ii = None
-        self._Kii = 2 ** lm.db_to_log2_gain(value)
+        self._Kii = 2 ** lm.db_to_log2_gain(_validate_numeric("Kii_dB", value))
         self.update_component()
 
     @property
-    def Kd_dB(self):
-        return None if self._Kd == 0.0 else lm.log2_gain_to_db(np.log2(self._Kd))
+    def Kd_dB(self) -> Optional[float]:
+        return (
+            None
+            if self._Kd == 0.0
+            else lm.log2_gain_to_db(np.log2(self._Kd))
+        )
 
     @Kd_dB.setter
-    def Kd_dB(self, value):
+    def Kd_dB(self, value: float) -> None:
         self._Fc_d = None
-        self._Kd = 2 ** lm.db_to_log2_gain(value)
+        self._Kd = 2 ** lm.db_to_log2_gain(_validate_numeric("Kd_dB", value))
         self.update_component()
 
     @property
-    def Fc_i(self):
+    def Fc_i(self) -> Optional[float]:
         return self._Fc_i
 
     @Fc_i.setter
-    def Fc_i(self, value):
-        self._Fc_i = float(value)
+    def Fc_i(self, value: Optional[float]) -> None:
+        self._Fc_i = _validate_optional_positive("Fc_i", value)
         self.update_component()
 
     @property
-    def Fc_ii(self):
+    def Fc_ii(self) -> Optional[float]:
         return self._Fc_ii
 
     @Fc_ii.setter
-    def Fc_ii(self, value):
-        self._Fc_ii = float(value)
+    def Fc_ii(self, value: Optional[float]) -> None:
+        self._Fc_ii = _validate_optional_positive("Fc_ii", value)
         self.update_component()
 
     @property
-    def Fc_d(self):
+    def Fc_d(self) -> Optional[float]:
         return self._Fc_d
 
     @Fc_d.setter
-    def Fc_d(self, value):
-        self._Fc_d = float(value)
+    def Fc_d(self, value: Optional[float]) -> None:
+        self._Fc_d = _validate_optional_positive("Fc_d", value)
         self.update_component()
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> MokuPIDSymbolicController:
         return MokuPIDSymbolicController(
             name=self.name,
             sps=self.sps,
@@ -522,14 +747,23 @@ class MokuPIDController(Component):
         Transition frequency below which extrapolation is applied [Hz].
     """
 
-    def __init__(self, name, sps, Kp_dB, Fc_i=None, Fc_ii=None, Fc_d=None, f_trans=None):
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Kp_dB: float,
+        Fc_i: Optional[float] = None,
+        Fc_ii: Optional[float] = None,
+        Fc_d: Optional[float] = None,
+        f_trans: Optional[float] = None,
+    ) -> None:
         self.name = name
-        self.sps = sps
-        self.f_trans = f_trans
-        self._Kp_dB = Kp_dB
-        self._Fc_i = Fc_i
-        self._Fc_ii = Fc_ii
-        self._Fc_d = Fc_d
+        self.sps = _validate_positive("sps", sps)
+        self.f_trans = _validate_optional_positive("f_trans", f_trans)
+        self._Kp_dB = _validate_numeric("Kp_dB", Kp_dB)
+        self._Fc_i = _validate_optional_positive("Fc_i", Fc_i)
+        self._Fc_ii = _validate_optional_positive("Fc_ii", Fc_ii)
+        self._Fc_d = _validate_optional_positive("Fc_d", Fc_d)
 
         self.update_component()
 
@@ -543,51 +777,98 @@ class MokuPIDController(Component):
             "Fc_d": (lambda: self.Fc_d, lambda value: setattr(self, "Fc_d", value)),
         }
 
-    def update_component(self):
+    def update_component(self) -> None:
         Kp_log2 = lm.db_to_log2_gain(self._Kp_dB)
         self._Kp = 2 ** Kp_log2
 
-        P = Component("P", self.sps, np.array([self._Kp]), np.array([1.0]), unit=Dimension(["cycle"], ["s", "rad"]))
-        components = [P]
+        p_comp = Component(
+            "P",
+            self.sps,
+            np.array([self._Kp]),
+            np.array([1.0]),
+            unit=Dimension(["cycle"], ["s", "rad"]),
+        )
+        components: list[Component] = [p_comp]
 
         if self._Fc_i is not None and self._Fc_ii is None:
-            self._Ki = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_i, kind="I")
-            I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=P.unit)
-            components.append(I)
+            self._Ki = 2 ** lm.gain_for_crossover_frequency(
+                Kp_log2, self.sps, self._Fc_i, kind="I"
+            )
+            i_comp = Component(
+                "I",
+                self.sps,
+                np.array([self._Ki]),
+                np.array([1.0, -1.0]),
+                unit=p_comp.unit,
+            )
+            components.append(i_comp)
         else:
             self._Ki = None
 
         if self._Fc_ii is not None and self._Fc_i is not None:
-            i_log2, ii_log2 = lm.gain_for_crossover_frequency(Kp_log2, self.sps, [self._Fc_i, self._Fc_ii], kind="II")
+            i_log2, ii_log2 = lm.gain_for_crossover_frequency(
+                Kp_log2, self.sps, [self._Fc_i, self._Fc_ii], kind="II"
+            )
             self._Ki, self._Kii = 2 ** i_log2, 2 ** ii_log2
-            I = Component("I", self.sps, np.array([self._Ki]), np.array([1.0, -1.0]), unit=P.unit)
-            components.append(I)
+            i_comp = Component(
+                "I",
+                self.sps,
+                np.array([self._Ki]),
+                np.array([1.0, -1.0]),
+                unit=p_comp.unit,
+            )
+            components.append(i_comp)
 
-            II = Component("II", self.sps, np.array([self._Kii]), np.array([1.0, -2.0, 1.0]), unit=P.unit)
+            ii_comp = Component(
+                "II",
+                self.sps,
+                np.array([self._Kii]),
+                np.array([1.0, -2.0, 1.0]),
+                unit=p_comp.unit,
+            )
             if self.f_trans is not None:
-                II.TF = partial(II.TF, extrapolate=True, f_trans=self.f_trans, power=-2)
-            components.append(II)
+                ii_comp.TF = partial(
+                    ii_comp.TF,
+                    extrapolate=True,
+                    f_trans=self.f_trans,
+                    power=-2,
+                )
+            components.append(ii_comp)
         else:
             self._Ki = None
             self._Kii = None
 
         if self._Fc_d is not None:
-            self._Kd = 2 ** lm.gain_for_crossover_frequency(Kp_log2, self.sps, self._Fc_d, kind="D")
-            D = Component("D", self.sps, np.array([self._Kd, -self._Kd]), np.array([1.0, 0.0, 1.0]), unit=P.unit)
-            components.append(D)
+            self._Kd = 2 ** lm.gain_for_crossover_frequency(
+                Kp_log2, self.sps, self._Fc_d, kind="D"
+            )
+            d_comp = Component(
+                "D",
+                self.sps,
+                np.array([self._Kd, -self._Kd]),
+                np.array([1.0, 0.0, 1.0]),
+                unit=p_comp.unit,
+            )
+            components.append(d_comp)
         else:
             self._Kd = None
 
-        PID = components[0]
+        pid_comp = components[0]
         for comp in components[1:]:
-            PID = PID + comp
+            pid_comp = pid_comp + comp
 
-        super().__init__(self.name, self.sps, PID.nume, PID.deno, unit=PID.unit)
-        self.TF = PID.TF
-        self.TE = PID.TE
+        super().__init__(
+            self.name,
+            self.sps,
+            pid_comp.nume,
+            pid_comp.deno,
+            unit=pid_comp.unit,
+        )
+        self.TF = pid_comp.TF
+        self.TE = pid_comp.TE
         self.TE.name = self.name
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> MokuPIDController:
         return MokuPIDController(
             name=self.name,
             sps=self.sps,
@@ -599,67 +880,79 @@ class MokuPIDController(Component):
         )
 
     @property
-    def Kp_dB(self):
+    def Kp_dB(self) -> float:
         return self._Kp_dB
 
     @Kp_dB.setter
-    def Kp_dB(self, value):
-        self._Kp_dB = float(value)
+    def Kp_dB(self, value: float) -> None:
+        self._Kp_dB = _validate_numeric("Kp_dB", value)
         self.update_component()
 
     @property
-    def Ki_dB(self):
-        return None if self._Ki is None else lm.log2_gain_to_db(np.log2(self._Ki))
+    def Ki_dB(self) -> Optional[float]:
+        return (
+            None
+            if self._Ki is None
+            else lm.log2_gain_to_db(np.log2(self._Ki))
+        )
 
     @Ki_dB.setter
-    def Ki_dB(self, value):
+    def Ki_dB(self, value: float) -> None:
         self._Fc_i = None
-        self._Ki = 2 ** lm.db_to_log2_gain(value)
+        self._Ki = 2 ** lm.db_to_log2_gain(_validate_numeric("Ki_dB", value))
         self.update_component()
 
     @property
-    def Kii_dB(self):
-        return None if self._Kii is None else lm.log2_gain_to_db(np.log2(self._Kii))
+    def Kii_dB(self) -> Optional[float]:
+        return (
+            None
+            if self._Kii is None
+            else lm.log2_gain_to_db(np.log2(self._Kii))
+        )
 
     @Kii_dB.setter
-    def Kii_dB(self, value):
+    def Kii_dB(self, value: float) -> None:
         self._Fc_ii = None
-        self._Kii = 2 ** lm.db_to_log2_gain(value)
+        self._Kii = 2 ** lm.db_to_log2_gain(_validate_numeric("Kii_dB", value))
         self.update_component()
 
     @property
-    def Kd_dB(self):
-        return None if self._Kd is None else lm.log2_gain_to_db(np.log2(self._Kd))
+    def Kd_dB(self) -> Optional[float]:
+        return (
+            None
+            if self._Kd is None
+            else lm.log2_gain_to_db(np.log2(self._Kd))
+        )
 
     @Kd_dB.setter
-    def Kd_dB(self, value):
+    def Kd_dB(self, value: float) -> None:
         self._Fc_d = None
-        self._Kd = 2 ** lm.db_to_log2_gain(value)
+        self._Kd = 2 ** lm.db_to_log2_gain(_validate_numeric("Kd_dB", value))
         self.update_component()
 
     @property
-    def Fc_i(self):
+    def Fc_i(self) -> Optional[float]:
         return self._Fc_i
 
     @Fc_i.setter
-    def Fc_i(self, value):
-        self._Fc_i = float(value) if value is not None else None
+    def Fc_i(self, value: Optional[float]) -> None:
+        self._Fc_i = _validate_optional_positive("Fc_i", value)
         self.update_component()
 
     @property
-    def Fc_ii(self):
+    def Fc_ii(self) -> Optional[float]:
         return self._Fc_ii
 
     @Fc_ii.setter
-    def Fc_ii(self, value):
-        self._Fc_ii = float(value) if value is not None else None
+    def Fc_ii(self, value: Optional[float]) -> None:
+        self._Fc_ii = _validate_optional_positive("Fc_ii", value)
         self.update_component()
 
     @property
-    def Fc_d(self):
+    def Fc_d(self) -> Optional[float]:
         return self._Fc_d
 
     @Fc_d.setter
-    def Fc_d(self, value):
-        self._Fc_d = float(value) if value is not None else None
+    def Fc_d(self, value: Optional[float]) -> None:
+        self._Fc_d = _validate_optional_positive("Fc_d", value)
         self.update_component()

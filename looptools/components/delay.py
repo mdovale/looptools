@@ -33,9 +33,16 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
+
 from looptools.component import Component
 from looptools.dimension import Dimension
+
+from looptools.components._validation import _validate_int_non_negative, _validate_positive
 
 
 class DSPDelayComponent(Component):
@@ -49,9 +56,9 @@ class DSPDelayComponent(Component):
     name : str
         Name of the component.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     n_reg : int
-        Number of DSP registers (delay in samples).
+        Number of DSP registers (delay in samples). Must be non-negative.
 
     Attributes
     ----------
@@ -59,14 +66,23 @@ class DSPDelayComponent(Component):
         Length of the pipeline delay.
     """
 
-    def __init__(self, name, sps, n_reg):
-        self._n_reg = int(n_reg)
-        DSP_denom = np.zeros(self._n_reg + 1)
-        DSP_denom[0] = 1.0
-        super().__init__(name, sps, np.array([1.0]), DSP_denom, unit=Dimension(dimensionless=True))
-        self.properties = {"n_reg": (lambda: self.n_reg, lambda value: setattr(self, "n_reg", value))}
+    def __init__(self, name: str, sps: float, n_reg: int | float) -> None:
+        _validate_positive("sps", sps)
+        self._n_reg = _validate_int_non_negative("n_reg", n_reg)
+        dsp_denom = np.zeros(self._n_reg + 1)
+        dsp_denom[0] = 1.0
+        super().__init__(
+            name,
+            sps,
+            np.array([1.0]),
+            dsp_denom,
+            unit=Dimension(dimensionless=True),
+        )
+        self.properties = {
+            "n_reg": (lambda: self.n_reg, lambda value: setattr(self, "n_reg", value)),
+        }
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> DSPDelayComponent:
         new_obj = DSPDelayComponent.__new__(DSPDelayComponent)
         new_obj.__init__(self.name, self.sps, self._n_reg)
         if getattr(self, "_loop", None) is not None:
@@ -74,15 +90,22 @@ class DSPDelayComponent(Component):
         return new_obj
 
     @property
-    def n_reg(self):
+    def n_reg(self) -> int:
+        """Number of DSP registers (delay in samples)."""
         return self._n_reg
 
     @n_reg.setter
-    def n_reg(self, value):
-        self._n_reg = int(value)
+    def n_reg(self, value: int | float) -> None:
+        self._n_reg = _validate_int_non_negative("n_reg", value)
         self.update_component()
 
-    def update_component(self):
-        DSP_denom = np.zeros(self._n_reg + 1)
-        DSP_denom[0] = 1
-        super().__init__(self.name, self.sps, np.array([1.0]), DSP_denom, unit=Dimension(dimensionless=True))
+    def update_component(self) -> None:
+        dsp_denom = np.zeros(self._n_reg + 1)
+        dsp_denom[0] = 1.0
+        super().__init__(
+            self.name,
+            self.sps,
+            np.array([1.0]),
+            dsp_denom,
+            unit=Dimension(dimensionless=True),
+        )
