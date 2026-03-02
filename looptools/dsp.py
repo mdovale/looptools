@@ -33,12 +33,21 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
-import logging
+
+if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
+
 logger = logging.getLogger(__name__)
 
-def index_of_the_nearest(data, value):
+
+def index_of_the_nearest(data: ArrayLike, value: float | int) -> int:
     """
     Return the index of the element in `data` closest to a given target value.
 
@@ -56,11 +65,25 @@ def index_of_the_nearest(data, value):
     -------
     idx : int
         Index of the element in `data` that is closest to `value`.
+
+    Raises
+    ------
+    ValueError
+        If `data` is empty.
     """
-    idx = np.argmin(np.abs(np.array(data) - value))
+    arr = np.asarray(data)
+    if arr.size == 0:
+        raise ValueError("Cannot find nearest index in empty array")
+    idx = int(np.argmin(np.abs(arr - value)))
     return idx
 
-def crop_data(x,y,xmin,xmax):
+
+def crop_data(
+    x: ArrayLike,
+    y: ArrayLike,
+    xmin: float,
+    xmax: float,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Crop paired data arrays to the range [xmin, xmax] based on the x-axis values.
 
@@ -85,17 +108,31 @@ def crop_data(x,y,xmin,xmax):
         Cropped `x` array containing values within [xmin, xmax].
     y_out : ndarray
         Cropped `y` array containing values corresponding to `x_out`.
+
+    Raises
+    ------
+    ValueError
+        If `x` and `y` have different lengths, or if `xmin > xmax`.
     """
-    x_tmp = []
-    y_tmp = []
-    for i in range(x.size):
-        if(x[i] >= xmin and x[i] <= xmax):
-            x_tmp.append(x[i])
-            y_tmp.append(y[i])
+    x_arr = np.asarray(x)
+    y_arr = np.asarray(y)
 
-    return np.array(x_tmp), np.array(y_tmp)
+    if x_arr.size != y_arr.size:
+        raise ValueError(
+            f"x and y must have the same length, got {x_arr.size} and {y_arr.size}"
+        )
+    if xmin > xmax:
+        raise ValueError(f"xmin must be <= xmax, got xmin={xmin}, xmax={xmax}")
 
-def integral_rms(fourier_freq, asd, pass_band=None):
+    mask = (x_arr >= xmin) & (x_arr <= xmax)
+    return x_arr[mask].copy(), y_arr[mask].copy()
+
+
+def integral_rms(
+    fourier_freq: ArrayLike,
+    asd: ArrayLike,
+    pass_band: tuple[float, float] | list[float] | None = None,
+) -> float:
     """
     Compute the root-mean-square (RMS) value from an amplitude spectral density (ASD) via integration.
 
@@ -117,6 +154,12 @@ def integral_rms(fourier_freq, asd, pass_band=None):
     -------
     rms : float
         Root-mean-square value computed as the square root of the integrated ASD² over the passband.
+        Returns 0.0 if the cropped frequency range is empty or has a single point.
+
+    Raises
+    ------
+    ValueError
+        If `fourier_freq` and `asd` have different lengths, or if `pass_band` is invalid.
 
     Notes
     -----
@@ -124,17 +167,43 @@ def integral_rms(fourier_freq, asd, pass_band=None):
     - Automatically restricts integration bounds to the overlap between `fourier_freq` and `pass_band`.
     - This function assumes that `asd` represents single-sided amplitude spectral density.
     """
+    f_arr = np.asarray(fourier_freq)
+    asd_arr = np.asarray(asd)
+
+    if f_arr.size != asd_arr.size:
+        raise ValueError(
+            f"fourier_freq and asd must have the same length, "
+            f"got {f_arr.size} and {asd_arr.size}"
+        )
+
     if pass_band is None:
-        pass_band = [-np.inf,np.inf]
+        pass_band = (-np.inf, np.inf)
+    else:
+        if len(pass_band) != 2:
+            raise ValueError(
+                f"pass_band must have exactly 2 elements [f_min, f_max], got {len(pass_band)}"
+            )
+        f_min, f_max = float(pass_band[0]), float(pass_band[1])
+        if f_min > f_max:
+            raise ValueError(
+                f"pass_band f_min must be <= f_max, got f_min={f_min}, f_max={f_max}"
+            )
+        pass_band = (f_min, f_max)
 
-    integral_range_min = max(np.min(fourier_freq), pass_band[0])
-    integral_range_max = min(np.max(fourier_freq), pass_band[1])
-    f_tmp, asd_tmp = crop_data(fourier_freq, asd, integral_range_min, integral_range_max)
+    integral_range_min = max(np.min(f_arr), pass_band[0])
+    integral_range_max = min(np.max(f_arr), pass_band[1])
+    if integral_range_min > integral_range_max:
+        return 0.0
+    f_tmp, asd_tmp = crop_data(f_arr, asd_arr, integral_range_min, integral_range_max)
+
+    if f_tmp.size < 2:
+        return 0.0
+
     integral_rms2 = cumulative_trapezoid(asd_tmp**2, f_tmp, initial=0)
-    return np.sqrt(integral_rms2[-1])
+    return float(np.sqrt(integral_rms2[-1]))
 
 
-def nan_checker(x):
+def nan_checker(x: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
     """
     Check for NaNs in an array and return a cleaned version with a mask of NaN locations.
 
@@ -144,7 +213,7 @@ def nan_checker(x):
     Parameters
     ----------
     x : array_like
-        Input array to check for NaN values.
+        Input array to check for NaN values. Must be numeric (float or complex).
 
     Returns
     -------
@@ -152,6 +221,11 @@ def nan_checker(x):
         Array with all NaN entries removed. If no NaNs are present, returns the input unchanged.
     nanarray : ndarray of bool
         Boolean array of the same shape as `x`, where `True` indicates a NaN in the original input.
+
+    Raises
+    ------
+    TypeError
+        If the input cannot be converted to a numeric array.
 
     Notes
     -----
@@ -161,12 +235,18 @@ def nan_checker(x):
     - Maintains alignment with original indices using `nanarray`.
 
     """
+    x_arr = np.asarray(x)
+    # Integer arrays cannot contain NaN
+    if np.issubdtype(x_arr.dtype, np.integer):
+        return x_arr, np.zeros(x_arr.size, dtype=bool)
+    has_nan = np.any(np.isnan(x_arr))
 
-    if True in np.isnan(x):
-        logger.warning('Nan was detected in the input array')
-        nanarray = np.isnan(x)
-        xnew = x[~nanarray]
+    if has_nan:
+        logger.warning("NaN was detected in the input array")
+        nanarray = np.isnan(x_arr)
+        xnew = x_arr[~nanarray].copy()
     else:
-        xnew, nanarray = x, np.full(x.size, False)
+        xnew = x_arr
+        nanarray = np.zeros(x_arr.size, dtype=bool)
 
     return xnew, nanarray
