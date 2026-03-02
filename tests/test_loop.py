@@ -69,6 +69,18 @@ class TestLOOPConstruction:
         loop = LOOP(SPS, name="MyLoop")
         assert loop.name == "MyLoop"
 
+    def test_construction_invalid_sps_raises(self):
+        """LOOP with invalid sps raises ValueError."""
+        with pytest.raises(ValueError, match="sps must be a positive number"):
+            LOOP(0)
+        with pytest.raises(ValueError, match="sps must be a positive number"):
+            LOOP(-1.0)
+
+    def test_construction_empty_name_raises(self):
+        """LOOP with empty name raises ValueError."""
+        with pytest.raises(ValueError, match="non-empty string"):
+            LOOP(SPS, name="")
+
     def test_construction_with_component_list(self, gain_component):
         """LOOP with component_list adds components and calls update."""
         loop = LOOP(SPS, [gain_component])
@@ -113,11 +125,11 @@ class TestLOOPComponentManagement:
         assert integrator_component._loop is loop
 
     def test_add_component_unnamed_raises(self, loop_single):
-        """Adding component with empty name raises AssertionError."""
+        """Adding component with empty name raises ValueError."""
         loop = loop_single
         unnamed = Component("", SPS, nume=[1.0], deno=[1.0])
         unnamed.name = ""
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError, match="unnamed"):
             loop.add_component(unnamed)
 
     def test_add_component_duplicate_name_does_not_add(self, loop_single, caplog):
@@ -140,8 +152,8 @@ class TestLOOPComponentManagement:
         assert "I" in loop.components_dict
 
     def test_remove_component_nonexistent_raises(self, loop_single):
-        """Removing nonexistent component raises AssertionError."""
-        with pytest.raises(AssertionError):
+        """Removing nonexistent component raises ValueError."""
+        with pytest.raises(ValueError, match="inexistent"):
             loop_single.remove_component("Nonexistent")
 
     def test_replace_component(self, loop_single):
@@ -154,9 +166,9 @@ class TestLOOPComponentManagement:
         assert loop.components_dict["G"].nume[0] == pytest.approx(10.0)
 
     def test_replace_component_nonexistent_raises(self, loop_single):
-        """Replacing nonexistent component raises AssertionError."""
+        """Replacing nonexistent component raises ValueError."""
         new_comp = Component("X", SPS, nume=[1.0], deno=[1.0])
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError, match="inexistent"):
             loop_single.replace_component("Nonexistent", new_comp)
 
 
@@ -331,13 +343,13 @@ class TestLOOPCollectComponents:
         assert "G" in names and "I" in names
 
     def test_collect_components_nonexistent_from_raises(self, loop_two_components):
-        """collect_components with nonexistent _from raises AssertionError."""
-        with pytest.raises(AssertionError):
+        """collect_components with nonexistent _from raises ValueError."""
+        with pytest.raises(ValueError, match="does not exist"):
             loop_two_components.collect_components(_from="X", _to="G")
 
     def test_collect_components_nonexistent_to_raises(self, loop_two_components):
-        """collect_components with nonexistent _to raises AssertionError."""
-        with pytest.raises(AssertionError):
+        """collect_components with nonexistent _to raises ValueError."""
+        with pytest.raises(ValueError, match="does not exist"):
             loop_two_components.collect_components(_from="G", _to="X")
 
 

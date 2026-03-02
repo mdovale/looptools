@@ -56,6 +56,11 @@ class TestIndexOfTheNearest:
         data = np.array([-5.0, -2.0, 0.0, 2.0, 5.0])
         assert index_of_the_nearest(data, -0.5) == 2  # 0 is closer than -2
 
+    def test_empty_array_raises(self):
+        """Empty array raises ValueError."""
+        with pytest.raises(ValueError, match="empty array"):
+            index_of_the_nearest(np.array([]), 1.0)
+
 
 # -----------------------------------------------------------------------------
 # crop_data tests
@@ -115,6 +120,28 @@ class TestCropData:
             orig_idx = np.where(x == x_out[i])[0][0]
             assert y_out[i] == y[orig_idx]
 
+    def test_mismatched_lengths_raise(self):
+        """x and y with different lengths raise ValueError."""
+        x = np.array([1.0, 2.0, 3.0])
+        y = np.array([10.0, 20.0])
+        with pytest.raises(ValueError, match="same length"):
+            crop_data(x, y, 1.0, 3.0)
+
+    def test_xmin_gt_xmax_raises(self):
+        """xmin > xmax raises ValueError."""
+        x = np.array([1.0, 2.0, 3.0])
+        y = np.array([10.0, 20.0, 30.0])
+        with pytest.raises(ValueError, match="xmin must be <= xmax"):
+            crop_data(x, y, 5.0, 1.0)
+
+    def test_list_input(self):
+        """Accepts list inputs (converted to ndarray)."""
+        x = [1.0, 2.0, 3.0]
+        y = [10.0, 20.0, 30.0]
+        x_out, y_out = crop_data(x, y, 1.5, 2.5)
+        np.testing.assert_array_equal(x_out, [2.0])
+        np.testing.assert_array_equal(y_out, [20.0])
+
 
 # -----------------------------------------------------------------------------
 # integral_rms tests
@@ -165,6 +192,34 @@ class TestIntegralRms:
         rms = integral_rms(f, asd)
         assert rms == 0.0
 
+    def test_empty_passband_overlap_returns_zero(self):
+        """Pass band outside frequency range returns 0.0."""
+        f = np.linspace(1.0, 10.0, 10)
+        asd = np.ones_like(f)
+        rms = integral_rms(f, asd, pass_band=[100.0, 200.0])
+        assert rms == 0.0
+
+    def test_mismatched_lengths_raise(self):
+        """fourier_freq and asd with different lengths raise ValueError."""
+        f = np.array([1.0, 2.0, 3.0])
+        asd = np.array([1.0, 1.0])
+        with pytest.raises(ValueError, match="same length"):
+            integral_rms(f, asd)
+
+    def test_invalid_pass_band_length_raises(self):
+        """pass_band with wrong number of elements raises ValueError."""
+        f = np.array([1.0, 2.0, 3.0])
+        asd = np.array([1.0, 1.0, 1.0])
+        with pytest.raises(ValueError, match="exactly 2 elements"):
+            integral_rms(f, asd, pass_band=[1.0, 2.0, 3.0])
+
+    def test_invalid_pass_band_order_raises(self):
+        """pass_band with f_min > f_max raises ValueError."""
+        f = np.array([1.0, 2.0, 3.0])
+        asd = np.array([1.0, 1.0, 1.0])
+        with pytest.raises(ValueError, match="f_min must be <= f_max"):
+            integral_rms(f, asd, pass_band=[10.0, 1.0])
+
 
 # -----------------------------------------------------------------------------
 # nan_checker tests
@@ -209,7 +264,7 @@ class TestNanChecker:
         caplog.set_level(logging.WARNING)
         x = np.array([1.0, np.nan, 2.0])
         nan_checker(x)
-        assert "Nan was detected" in caplog.text
+        assert "NaN was detected" in caplog.text
 
     def test_no_warning_without_nan(self, caplog):
         """No warning when no NaNs present."""
@@ -218,4 +273,11 @@ class TestNanChecker:
         caplog.set_level(logging.WARNING)
         x = np.array([1.0, 2.0, 3.0])
         nan_checker(x)
-        assert "Nan" not in caplog.text or "Nan was detected" not in caplog.text
+        assert "NaN was detected" not in caplog.text
+
+    def test_integer_array_returns_unchanged(self):
+        """Integer arrays cannot contain NaN; returns input and all-False mask."""
+        x = np.array([1, 2, 3])
+        xnew, nanarray = nan_checker(x)
+        np.testing.assert_array_equal(xnew, x)
+        np.testing.assert_array_equal(nanarray, [False, False, False])

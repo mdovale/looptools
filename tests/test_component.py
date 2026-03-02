@@ -116,15 +116,15 @@ class TestComponentConstruction:
     def test_construction_unit_default_dimensionless(self):
         """Default unit is dimensionless."""
         c = Component("G", SPS, nume=[1.0], deno=[1.0])
-        assert c.unit.numes == []
-        assert c.unit.denos == []
+        assert c.unit.numes == ()
+        assert c.unit.denos == ()
 
     def test_construction_unit_custom(self):
         """Custom unit can be passed."""
         unit = dim.Dimension(numes=["m"], denos=["s"])
         c = Component("G", SPS, nume=[1.0], deno=[1.0], unit=unit)
-        assert c.unit.numes == ["m"]
-        assert c.unit.denos == ["s"]
+        assert c.unit.numes == ("m",)
+        assert c.unit.denos == ("s",)
 
 
 # -----------------------------------------------------------------------------

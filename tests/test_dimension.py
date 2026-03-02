@@ -16,35 +16,35 @@ class TestDimensionConstruction:
     def test_construction_empty(self):
         """Empty construction yields dimensionless."""
         d = Dimension()
-        assert d.numes == []
-        assert d.denos == []
+        assert d.numes == ()
+        assert d.denos == ()
 
     def test_construction_dimensionless_flag(self):
         """dimensionless=True yields empty numes and denos."""
         d = Dimension(dimensionless=True)
-        assert d.numes == []
-        assert d.denos == []
+        assert d.numes == ()
+        assert d.denos == ()
         assert d.unit_string() == ""
 
     def test_construction_simple(self):
         """Simple m/s dimension."""
         d = Dimension(["m"], ["s"])
-        assert d.numes == ["m"]
-        assert d.denos == ["s"]
+        assert d.numes == ("m",)
+        assert d.denos == ("s",)
         assert d.unit_string() == "m/s"
 
     def test_construction_multiple_units(self):
         """Multiple units in num and den."""
         d = Dimension(["m", "kg"], ["s", "s"])
         assert sorted(d.numes) == ["kg", "m"]
-        assert d.denos == ["s", "s"]
+        assert d.denos == ("s", "s")
         assert d.unit_string() in ("m*kg/s*s", "kg*m/s*s")  # order may vary
 
     def test_construction_reduces_on_init(self):
         """Common terms are reduced on construction."""
         d = Dimension(["m", "s"], ["s"])
-        assert d.numes == ["m"]
-        assert d.denos == []
+        assert d.numes == ("m",)
+        assert d.denos == ()
 
     def test_construction_no_input_mutation(self):
         """Constructor does not mutate caller's lists."""
@@ -52,6 +52,13 @@ class TestDimensionConstruction:
         Dimension(numes, denos)
         assert numes == ["m", "s"]
         assert denos == ["s"]
+
+    def test_construction_invalid_unit_type(self):
+        """Non-string units raise TypeError."""
+        with pytest.raises(TypeError, match="numes must contain strings"):
+            Dimension([1, "m"], ["s"])
+        with pytest.raises(TypeError, match="denos must contain strings"):
+            Dimension(["m"], [42])
 
 
 # -----------------------------------------------------------------------------
@@ -67,8 +74,8 @@ class TestDimensionMultiplication:
         d1 = Dimension(["m"], ["s"])
         d2 = Dimension(["s"], [])
         result = d1 * d2
-        assert result.numes == ["m"]
-        assert result.denos == []
+        assert result.numes == ("m",)
+        assert result.denos == ()
         assert result.unit_string() == "m"
 
     def test_mul_dimensionless_left(self):
@@ -76,24 +83,24 @@ class TestDimensionMultiplication:
         d1 = Dimension(dimensionless=True)
         d2 = Dimension(["m"], ["s"])
         result = d1 * d2
-        assert result.numes == ["m"]
-        assert result.denos == ["s"]
+        assert result.numes == ("m",)
+        assert result.denos == ("s",)
 
     def test_mul_dimensionless_right(self):
         """m/s * 1 = m/s."""
         d1 = Dimension(["m"], ["s"])
         d2 = Dimension(dimensionless=True)
         result = d1 * d2
-        assert result.numes == ["m"]
-        assert result.denos == ["s"]
+        assert result.numes == ("m",)
+        assert result.denos == ("s",)
 
     def test_mul_dimensionless_both(self):
         """1 * 1 = 1."""
         d1 = Dimension(dimensionless=True)
         d2 = Dimension(dimensionless=True)
         result = d1 * d2
-        assert result.numes == []
-        assert result.denos == []
+        assert result.numes == ()
+        assert result.denos == ()
 
     def test_mul_complex(self):
         """m²/s * s*kg/m = m*kg."""
@@ -102,7 +109,7 @@ class TestDimensionMultiplication:
         result = d1 * d2
         assert "m" in result.numes and "kg" in result.numes
         assert len(result.numes) == 2
-        assert result.denos == []
+        assert result.denos == ()
 
 
 # -----------------------------------------------------------------------------
@@ -118,22 +125,22 @@ class TestDimensionDivision:
         d1 = Dimension(["m"], [])
         d2 = Dimension(["s"], [])
         result = d1 / d2
-        assert result.numes == ["m"]
-        assert result.denos == ["s"]
+        assert result.numes == ("m",)
+        assert result.denos == ("s",)
 
     def test_truediv_with_cancellation(self):
         """m/s / s = m/s²."""
         d1 = Dimension(["m"], ["s"])
         d2 = Dimension(["s"], [])
         result = d1 / d2
-        assert result.numes == ["m"]
-        assert result.denos == ["s", "s"]
+        assert result.numes == ("m",)
+        assert result.denos == ("s", "s")
 
     def test_truediv_inverse_of_mul(self):
         """(m/s * s) / s = m/s."""
         d = Dimension(["m"], ["s"]) * Dimension(["s"], []) / Dimension(["s"], [])
-        assert d.numes == ["m"]
-        assert d.denos == ["s"]
+        assert d.numes == ("m",)
+        assert d.denos == ("s",)
 
 
 # -----------------------------------------------------------------------------
@@ -244,11 +251,39 @@ class TestDimensionReduction:
     def test_reduction_full_cancel(self):
         """Fully cancelling terms yields dimensionless."""
         d = Dimension(["m", "s"], ["m", "s"])
-        assert d.numes == []
-        assert d.denos == []
+        assert d.numes == ()
+        assert d.denos == ()
 
     def test_reduction_partial_cancel(self):
         """Partial cancellation."""
         d = Dimension(["m", "m", "s"], ["m", "s"])
-        assert d.numes == ["m"]
-        assert d.denos == []
+        assert d.numes == ("m",)
+        assert d.denos == ()
+
+
+# -----------------------------------------------------------------------------
+# Hashability tests
+# -----------------------------------------------------------------------------
+
+
+class TestDimensionHashability:
+    """Tests for Dimension.__hash__."""
+    
+    def test_hash_equal_dimensions_same_hash(self):
+        """Equal dimensions have the same hash."""
+        d1 = Dimension(["m"], ["s"])
+        d2 = Dimension(["m"], ["s"])
+        assert hash(d1) == hash(d2)
+
+    def test_hash_usable_in_set(self):
+        """Dimension can be used in sets."""
+        d1 = Dimension(["m"], ["s"])
+        d2 = Dimension(["m"], ["s"])
+        s = {d1, d2}
+        assert len(s) == 1
+
+    def test_hash_usable_as_dict_key(self):
+        """Dimension can be used as dict key."""
+        d = Dimension(["m"], ["s"])
+        mapping = {d: "velocity"}
+        assert mapping[Dimension(["m"], ["s"])] == "velocity"

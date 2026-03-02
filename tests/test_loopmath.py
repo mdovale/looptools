@@ -300,8 +300,8 @@ class TestTfPowerSolver:
         assert mag_at_5 / mag_at_20 == pytest.approx(expected_ratio, rel=1e-5)
 
     def test_raises_on_non_float_f(self):
-        """Raises ValueError if f is not float."""
-        with pytest.raises(ValueError, match="invalid type"):
+        """Raises ValueError if f is not a scalar."""
+        with pytest.raises(ValueError, match="scalar"):
             tf_power_solver(np.array([10.0]), 1.0 + 0j, np.array([5.0]), power=-2)
 
 
@@ -422,13 +422,13 @@ class TestGainForCrossoverFrequency:
         assert all(np.isfinite(r) for r in result)
 
     def test_invalid_kind_raises(self):
-        """Invalid kind raises AssertionError."""
-        with pytest.raises(AssertionError, match="Invalid kind"):
+        """Invalid kind raises ValueError."""
+        with pytest.raises(ValueError, match="kind must be"):
             gain_for_crossover_frequency(0.0, SPS, 10.0, kind="X")
 
     def test_II_requires_tuple_f_cross(self):
         """kind='II' with non-tuple f_cross raises."""
-        with pytest.raises(AssertionError, match="f_cross must be a tuple"):
+        with pytest.raises(ValueError, match="f_cross must be a tuple"):
             gain_for_crossover_frequency(0.0, SPS, 10.0, kind="II")
 
 
