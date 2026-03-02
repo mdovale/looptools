@@ -33,7 +33,17 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import copy
+from __future__ import annotations
+
+from typing import Iterable, Optional
+
+
+def _validate_units(units: Iterable, name: str) -> None:
+    """Raise TypeError if any unit is not a string."""
+    for u in units:
+        if not isinstance(u, str):
+            raise TypeError(f"{name} must contain strings, got {type(u).__name__}: {u!r}")
+
 
 class Dimension:
     """
@@ -44,7 +54,12 @@ class Dimension:
     It is not tied to a specific unit system, but works with symbolic strings.
     """
 
-    def __init__(self, numes=None, denos=None, dimensionless=False):
+    def __init__(
+        self,
+        numes: Optional[Iterable[str]] = None,
+        denos: Optional[Iterable[str]] = None,
+        dimensionless: bool = False,
+    ) -> None:
         """
         Initialize a Dimension object.
 
@@ -63,15 +78,28 @@ class Dimension:
             denos = []
 
         if dimensionless:
-            self.numes = []
-            self.denos = []
+            self._numes: tuple[str, ...] = ()
+            self._denos: tuple[str, ...] = ()
         else:
-            self.numes = list(numes)
-            self.denos = list(denos)
+            numes_list = list(numes)
+            denos_list = list(denos)
+            _validate_units(numes_list, "numes")
+            _validate_units(denos_list, "denos")
+            self._reduction(numes_list, denos_list)
+            self._numes = tuple(numes_list)
+            self._denos = tuple(denos_list)
 
-        self.reduction(self.numes, self.denos)
+    @property
+    def numes(self) -> tuple[str, ...]:
+        """Numerator units (immutable)."""
+        return self._numes
 
-    def __mul__(self, other):
+    @property
+    def denos(self) -> tuple[str, ...]:
+        """Denominator units (immutable)."""
+        return self._denos
+
+    def __mul__(self, other: Dimension) -> Dimension:
         """
         Multiply two Dimension objects.
 
@@ -90,20 +118,20 @@ class Dimension:
         The multiplication follows symbolic dimensional algebra and
         automatically reduces common units between numerators and denominators.
         """
-        self_numes = copy.copy(self.numes)
-        self_denos = copy.copy(self.denos)
-        other_numes = copy.copy(other.numes)
-        other_denos = copy.copy(other.denos)
+        self_numes = list(self.numes)
+        self_denos = list(self.denos)
+        other_numes = list(other.numes)
+        other_denos = list(other.denos)
 
-        self.reduction(self_numes, other_denos)
-        self.reduction(self_denos, other_numes)
+        self._reduction(self_numes, other_denos)
+        self._reduction(self_denos, other_numes)
 
         self_numes.extend(other_numes)
         self_denos.extend(other_denos)
 
         return Dimension(self_numes, self_denos)
 
-    def __truediv__(self, other):
+    def __truediv__(self, other: Dimension) -> Dimension:
         """
         Divide this Dimension by another (self / other).
 
@@ -114,7 +142,7 @@ class Dimension:
         """
         return self * Dimension(other.denos, other.numes)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """Return True if self and other represent the same dimension."""
         if not isinstance(other, Dimension):
             return NotImplemented
@@ -122,11 +150,15 @@ class Dimension:
             other.denos
         )
 
-    def __repr__(self):
+    def __hash__(self) -> int:
+        """Hash based on canonical (sorted) form for consistency with __eq__."""
+        return hash((tuple(sorted(self.numes)), tuple(sorted(self.denos))))
+
+    def __repr__(self) -> str:
         s = self.unit_string()
         return f"Dimension({s!r})" if s else "Dimension(dimensionless=True)"
 
-    def reduction(self, numes, denos):
+    def _reduction(self, numes: list[str], denos: list[str]) -> None:
         """
         Simplify numerator and denominator unit lists by cancelling common terms.
 
@@ -151,7 +183,7 @@ class Dimension:
                 numes.remove(common)
                 denos.remove(common)
 
-    def unit_string(self):
+    def unit_string(self) -> str:
         """
         Generate a string representation of the dimension.
 
@@ -171,7 +203,7 @@ class Dimension:
         else:
             return ""
 
-    def show(self):
+    def show(self) -> None:
         """
         Print the dimension as a symbolic unit string.
 
