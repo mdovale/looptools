@@ -36,7 +36,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any, Optional, Tuple
+from typing import Any, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -50,6 +50,15 @@ from loopkit.components._validation import (
     _validate_optional_positive,
     _validate_positive,
 )
+
+
+def _validate_gain_scale(value: str) -> Literal["log2", "linear"]:
+    """Validate gain_scale is 'log2' or 'linear'."""
+    if value not in ("log2", "linear"):
+        raise ValueError(
+            f"gain_scale must be 'log2' or 'linear', got {value!r}"
+        )
+    return value
 
 
 class PIControllerComponent(Component):
@@ -66,16 +75,19 @@ class PIControllerComponent(Component):
     sps : float
         Sample rate in Hz.
     Kp : float
-        Proportional gain as log2(Kp).
+        Proportional gain. Interpretation depends on gain_scale.
     Ki : float
-        Integral gain as log2(Ki).
+        Integral gain. Interpretation depends on gain_scale.
+    gain_scale : str, optional
+        - "log2": Kp, Ki are log₂ exponents (gain = 2^Kp). Default.
+        - "linear": Kp, Ki are direct gain values.
 
     Attributes
     ----------
     Kp : float
-        Proportional gain.
+        Proportional gain (effective value).
     Ki : float
-        Integral gain.
+        Integral gain (effective value).
     """
 
     def __init__(
@@ -84,10 +96,18 @@ class PIControllerComponent(Component):
         sps: float,
         Kp: float,
         Ki: float,
+        gain_scale: Literal["log2", "linear"] = "log2",
     ) -> None:
         sps_f = _validate_positive("sps", sps)
-        self._Kp = 2 ** _validate_numeric("Kp", Kp)
-        self._Ki = 2 ** _validate_numeric("Ki", Ki)
+        self._gain_scale = _validate_gain_scale(gain_scale)
+        kp_val = _validate_numeric("Kp", Kp)
+        ki_val = _validate_numeric("Ki", Ki)
+        if self._gain_scale == "log2":
+            self._Kp = 2**kp_val
+            self._Ki = 2**ki_val
+        else:
+            self._Kp = kp_val
+            self._Ki = ki_val
         p_comp = Component(
             "P",
             sps_f,
@@ -107,11 +127,31 @@ class PIControllerComponent(Component):
         self.properties = {
             "Kp": (lambda: self.Kp, lambda value: setattr(self, "Kp", value)),
             "Ki": (lambda: self.Ki, lambda value: setattr(self, "Ki", value)),
+            "gain_scale": (
+                lambda: self.gain_scale,
+                lambda value: setattr(self, "gain_scale", value),
+            ),
         }
+
+    @property
+    def gain_scale(self) -> Literal["log2", "linear"]:
+        """Scale for Kp/Ki: 'log2' (gain = 2^Kp) or 'linear' (direct gain)."""
+        return self._gain_scale
+
+    @gain_scale.setter
+    def gain_scale(self, value: Literal["log2", "linear"]) -> None:
+        self._gain_scale = _validate_gain_scale(value)
+        self.update_component()
 
     def __deepcopy__(self, memo: dict[int, Any]) -> PIControllerComponent:
         new_obj = PIControllerComponent.__new__(PIControllerComponent)
-        new_obj.__init__(self.name, self.sps, np.log2(self._Kp), np.log2(self._Ki))
+        if self._gain_scale == "log2":
+            kp_arg, ki_arg = np.log2(self._Kp), np.log2(self._Ki)
+        else:
+            kp_arg, ki_arg = self._Kp, self._Ki
+        new_obj.__init__(
+            self.name, self.sps, kp_arg, ki_arg, gain_scale=self._gain_scale
+        )
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
@@ -122,7 +162,8 @@ class PIControllerComponent(Component):
 
     @Kp.setter
     def Kp(self, value: float) -> None:
-        self._Kp = 2 ** _validate_numeric("Kp", value)
+        v = _validate_numeric("Kp", value)
+        self._Kp = 2**v if self._gain_scale == "log2" else v
         self.update_component()
 
     @property
@@ -131,7 +172,8 @@ class PIControllerComponent(Component):
 
     @Ki.setter
     def Ki(self, value: float) -> None:
-        self._Ki = 2 ** _validate_numeric("Ki", value)
+        v = _validate_numeric("Ki", value)
+        self._Ki = 2**v if self._gain_scale == "log2" else v
         self.update_component()
 
     def update_component(self) -> None:
