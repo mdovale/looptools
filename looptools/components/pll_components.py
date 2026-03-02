@@ -33,9 +33,15 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
+from __future__ import annotations
+
+from typing import Any, Dict
+
 import numpy as np
+
 from looptools.component import Component
 from looptools.dimension import Dimension
+from looptools.components._validation import _validate_positive
 
 
 class PDComponent(Component):
@@ -56,9 +62,10 @@ class PDComponent(Component):
     name : str
         Name of the component.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     Amp : float
         Peak amplitude of the input signal; determines phase detector gain.
+        Must be positive.
 
     Attributes
     ----------
@@ -68,16 +75,25 @@ class PDComponent(Component):
         Internal gain value, computed as Amp / 4.0.
     """
 
-    def __init__(self, name, sps, Amp):
-        self._Amp = Amp
-        self._ival = Amp / 4.0
-        super().__init__(name, sps, np.array([self._ival]), np.array([1.0]), unit=Dimension(dimensionless=True))
+    def __init__(self, name: str, sps: float, Amp: float) -> None:
+        if not isinstance(name, str):
+            raise TypeError(f"name must be str, got {type(name).__name__}")
+        sps_f = _validate_positive("sps", sps)
+        self._Amp = _validate_positive("Amp", Amp)
+        self._ival = self._Amp / 4.0
+        super().__init__(
+            name,
+            sps_f,
+            np.array([self._ival], dtype=float),
+            np.array([1.0], dtype=float),
+            unit=Dimension(dimensionless=True),
+        )
         self.properties = {
-            "Amp": (lambda self=self: self.Amp, lambda value, self=self: setattr(self, "Amp", value)),
-            "ival": (lambda self=self: self.ival, lambda value, self=self: setattr(self, "ival", value)),
+            "Amp": (lambda: self.Amp, lambda v: setattr(self, "Amp", v)),
+            "ival": (lambda: self.ival, lambda v: setattr(self, "ival", v)),
         }
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: Dict[int, Any]) -> PDComponent:
         new_obj = PDComponent.__new__(PDComponent)
         new_obj.__init__(self.name, self.sps, self._Amp)
         if getattr(self, "_loop", None) is not None:
@@ -85,27 +101,33 @@ class PDComponent(Component):
         return new_obj
 
     @property
-    def Amp(self):
+    def Amp(self) -> float:
         return self._Amp
 
     @Amp.setter
-    def Amp(self, value):
-        self._Amp = float(value)
+    def Amp(self, value: float) -> None:
+        self._Amp = _validate_positive("Amp", value)
         self._ival = self._Amp / 4.0
         self.update_component()
 
     @property
-    def ival(self):
+    def ival(self) -> float:
         return self._ival
 
     @ival.setter
-    def ival(self, value):
-        self._ival = float(value)
+    def ival(self, value: float) -> None:
+        self._ival = _validate_positive("ival", value)
         self._Amp = 4.0 * self._ival
         self.update_component()
 
-    def update_component(self):
-        super().__init__(self.name, self.sps, np.array([self._ival]), np.array([1.0]), unit=Dimension(dimensionless=True))
+    def update_component(self) -> None:
+        super().__init__(
+            self.name,
+            self.sps,
+            np.array([self._ival], dtype=float),
+            np.array([1.0], dtype=float),
+            unit=Dimension(dimensionless=True),
+        )
 
 
 class PAComponent(Component):
@@ -119,13 +141,22 @@ class PAComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     """
 
-    def __init__(self, name, sps):
-        super().__init__(name, sps, np.array([1.0]), np.array([1.0, -1.0]), unit=Dimension(["s"], []))
+    def __init__(self, name: str, sps: float) -> None:
+        if not isinstance(name, str):
+            raise TypeError(f"name must be str, got {type(name).__name__}")
+        sps_f = _validate_positive("sps", sps)
+        super().__init__(
+            name,
+            sps_f,
+            np.array([1.0], dtype=float),
+            np.array([1.0, -1.0], dtype=float),
+            unit=Dimension(["s"], []),
+        )
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: Dict[int, Any]) -> PAComponent:
         new_obj = PAComponent.__new__(PAComponent)
         new_obj.__init__(self.name, self.sps)
         if getattr(self, "_loop", None) is not None:
@@ -144,13 +175,22 @@ class LUTComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     """
 
-    def __init__(self, name, sps):
-        super().__init__(name, sps, np.array([2.0 * np.pi]), np.array([1.0]), unit=Dimension(["rad"], ["cycle"]))
+    def __init__(self, name: str, sps: float) -> None:
+        if not isinstance(name, str):
+            raise TypeError(f"name must be str, got {type(name).__name__}")
+        sps_f = _validate_positive("sps", sps)
+        super().__init__(
+            name,
+            sps_f,
+            np.array([2.0 * np.pi], dtype=float),
+            np.array([1.0], dtype=float),
+            unit=Dimension(["rad"], ["cycle"]),
+        )
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: Dict[int, Any]) -> LUTComponent:
         new_obj = LUTComponent.__new__(LUTComponent)
         new_obj.__init__(self.name, self.sps)
         if getattr(self, "_loop", None) is not None:
