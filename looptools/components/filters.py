@@ -33,10 +33,23 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
+"""Low-pass filter components for control loops."""
+from __future__ import annotations
+
+from typing import Any, Dict
+
 import numpy as np
 from scipy.signal import butter
+
 from looptools.component import Component
 from looptools.dimension import Dimension
+
+from ._validation import (
+    _validate_int_positive,
+    _validate_numeric,
+    _validate_positive,
+    _validate_str_non_empty,
+)
 
 
 class LPFComponent(Component):
@@ -51,11 +64,11 @@ class LPFComponent(Component):
     name : str
         Name of the component.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     Klf : float
         Log2 representation of loop gain (gain = 2^-Klf).
     n : int, optional
-        Number of cascaded first-order sections (default is 1).
+        Number of cascaded first-order sections (default is 1). Must be >= 1.
 
     Attributes
     ----------
@@ -65,37 +78,63 @@ class LPFComponent(Component):
         Filter order (number of cascaded stages).
     """
 
-    def __init__(self, name, sps, Klf, n=1):
-        self.n = int(n)
-        self._Klf = 2.0 ** float(-Klf)
-        num = np.array([self._Klf]) ** self.n
-        den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self.n
-        super().__init__(name, sps, num, den.coeffs, unit=Dimension(dimensionless=True))
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Klf: float,
+        n: int = 1,
+    ) -> None:
+        name_s = _validate_str_non_empty("name", name)
+        sps_f = _validate_positive("sps", sps)
+        self._n = _validate_int_positive("n", n)
+        klf_exp = _validate_numeric("Klf", Klf)
+        self._Klf = 2.0 ** float(-klf_exp)
+
+        num = np.array([self._Klf]) ** self._n
+        den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self._n
+        super().__init__(
+            name_s, sps_f, num, den.coeffs, unit=Dimension(dimensionless=True)
+        )
         self.properties = {
-            "Klf": (lambda: self.Klf, lambda value: setattr(self, "Klf", value)),
-            "n": (lambda: self.n, lambda value: setattr(self, "n", int(value))),
+            "Klf": (lambda: self.Klf, lambda v: setattr(self, "Klf", v)),
+            "n": (lambda: self.n, lambda v: setattr(self, "n", v)),
         }
 
-    def __deepcopy__(self, memo):
+    @property
+    def n(self) -> int:
+        """Number of cascaded first-order sections."""
+        return self._n
+
+    @n.setter
+    def n(self, value: int) -> None:
+        self._n = _validate_int_positive("n", value)
+        self.update_component()
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> LPFComponent:
         new_obj = LPFComponent.__new__(LPFComponent)
-        new_obj.__init__(self.name, self.sps, -np.log2(self._Klf), self.n)
+        new_obj.__init__(self.name, self.sps, -np.log2(self._Klf), self._n)
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
 
     @property
-    def Klf(self):
+    def Klf(self) -> float:
+        """Filter gain (2^-Klf)."""
         return self._Klf
 
     @Klf.setter
-    def Klf(self, value):
-        self._Klf = 2 ** float(-value)
+    def Klf(self, value: float) -> None:
+        self._Klf = 2.0 ** float(-_validate_numeric("Klf", value))
         self.update_component()
 
-    def update_component(self):
-        num = np.array([self._Klf]) ** self.n
-        den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self.n
-        super().__init__(self.name, self.sps, num, den.coeffs, unit=Dimension(dimensionless=True))
+    def update_component(self) -> None:
+        num = np.array([self._Klf]) ** self._n
+        den = np.poly1d([1.0, -(1.0 - self._Klf)]) ** self._n
+        super().__init__(
+            self.name, self.sps, num, den.coeffs,
+            unit=Dimension(dimensionless=True)
+        )
 
 
 class ButterworthLPFComponent(Component):
@@ -109,9 +148,9 @@ class ButterworthLPFComponent(Component):
     name : str
         Name of the component.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     f_c : float
-        -3 dB cutoff frequency in Hz.
+        -3 dB cutoff frequency in Hz. Must be positive and < Nyquist (sps/2).
     order : int, optional
         Filter order (default: 1). Must be >= 1.
 
@@ -123,33 +162,71 @@ class ButterworthLPFComponent(Component):
         Filter order.
     """
 
-    def __init__(self, name, sps, f_c, order=1):
-        if order < 1:
-            raise ValueError("Butterworth filter order must be >= 1.")
-        self.f_c = f_c
-        self.order = int(order)
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        f_c: float,
+        order: int = 1,
+    ) -> None:
+        name_s = _validate_str_non_empty("name", name)
+        sps_f = _validate_positive("sps", sps)
+        self._f_c = _validate_positive("f_c", f_c)
+        self._order = _validate_int_positive("order", order)
 
-        norm_cutoff = f_c / (0.5 * sps)
-        b, a = butter(N=order, Wn=norm_cutoff, btype="low", analog=False)
+        nyquist = 0.5 * sps_f
+        if self._f_c >= nyquist:
+            raise ValueError(
+                f"f_c must be < Nyquist (sps/2 = {nyquist} Hz), got {self._f_c}"
+            )
 
-        super().__init__(name=name, sps=sps, nume=b, deno=a, unit=Dimension(dimensionless=True))
+        norm_cutoff = self._f_c / nyquist
+        b, a = butter(
+            N=self._order, Wn=norm_cutoff, btype="low", analog=False
+        )
+
+        super().__init__(
+            name=name_s,
+            sps=sps_f,
+            nume=b,
+            deno=a,
+            unit=Dimension(dimensionless=True),
+        )
 
         self.properties = {
             "f_c": (lambda: self.f_c, self._set_fc),
             "order": (lambda: self.order, self._set_order),
         }
 
-    def _set_fc(self, f_c):
-        self.f_c = float(f_c)
+    @property
+    def f_c(self) -> float:
+        """Cutoff frequency in Hz."""
+        return self._f_c
+
+    @property
+    def order(self) -> int:
+        """Filter order."""
+        return self._order
+
+    def _set_fc(self, f_c: float) -> None:
+        f_c_f = _validate_positive("f_c", f_c)
+        nyquist = 0.5 * self.sps
+        if f_c_f >= nyquist:
+            raise ValueError(
+                f"f_c must be < Nyquist (sps/2 = {nyquist} Hz), got {f_c_f}"
+            )
+        self._f_c = f_c_f
         self._update_tf()
 
-    def _set_order(self, order):
-        self.order = int(order)
+    def _set_order(self, order: int) -> None:
+        self._order = _validate_int_positive("order", order)
         self._update_tf()
 
-    def _update_tf(self):
-        norm_cutoff = self.f_c / (0.5 * self.sps)
-        b, a = butter(N=self.order, Wn=norm_cutoff, btype="low", analog=False)
+    def _update_tf(self) -> None:
+        norm_cutoff = self._f_c / (0.5 * self.sps)
+        b, a = butter(
+            N=self._order, Wn=norm_cutoff, btype="low", analog=False
+        )
         self.nume = np.atleast_1d(b)
         self.deno = np.atleast_1d(a)
 
@@ -163,7 +240,7 @@ class TwoStageLPFComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     Klf : float
         Log2 representation of gain.
 
@@ -173,19 +250,29 @@ class TwoStageLPFComponent(Component):
         Effective loop filter gain (applied twice in series).
     """
 
-    def __init__(self, name, sps, Klf):
-        self._Klf = 2 ** float(-Klf)
-        LF = Component(
-            "LPF", sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True)
-        )
-        LF = LF * LF
-        super().__init__(name, sps, LF.nume, LF.deno, unit=LF.unit)
-        self.TE = LF.TE
-        self.TE.name = name
-        self.TF = LF.TF
-        self.properties = {"Klf": (lambda: self.Klf, lambda value: setattr(self, "Klf", value))}
+    def __init__(self, name: str, sps: float, Klf: float) -> None:
+        name_s = _validate_str_non_empty("name", name)
+        sps_f = _validate_positive("sps", sps)
+        klf_exp = _validate_numeric("Klf", Klf)
+        self._Klf = 2.0 ** float(-klf_exp)
 
-    def __deepcopy__(self, memo):
+        num = np.array([self._Klf])
+        den = np.array([1.0, -(1.0 - self._Klf)])
+        unit = Dimension(dimensionless=True)
+        lf = Component(
+            "LPF", sps_f, num, den, unit=unit
+        )
+        lf = lf * lf
+
+        super().__init__(name_s, sps_f, lf.nume, lf.deno, unit=lf.unit)
+        self.TE = lf.TE
+        self.TE.name = name_s
+        self.TF = lf.TF
+        self.properties = {
+            "Klf": (lambda: self.Klf, lambda v: setattr(self, "Klf", v)),
+        }
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> TwoStageLPFComponent:
         new_obj = TwoStageLPFComponent.__new__(TwoStageLPFComponent)
         new_obj.__init__(self.name, self.sps, -np.log2(self._Klf))
         if getattr(self, "_loop", None) is not None:
@@ -193,20 +280,22 @@ class TwoStageLPFComponent(Component):
         return new_obj
 
     @property
-    def Klf(self):
+    def Klf(self) -> float:
+        """Filter gain (2^-Klf)."""
         return self._Klf
 
     @Klf.setter
-    def Klf(self, value):
-        self._Klf = 2 ** float(-value)
+    def Klf(self, value: float) -> None:
+        self._Klf = 2.0 ** float(-_validate_numeric("Klf", value))
         self.update_component()
 
-    def update_component(self):
-        LF = Component(
-            "LPF", self.sps, np.array([self._Klf]), np.array([1.0, -(1.0 - self._Klf)]), unit=Dimension(dimensionless=True)
-        )
-        LF = LF * LF
-        super().__init__(self.name, self.sps, LF.nume, LF.deno, unit=LF.unit)
-        self.TE = LF.TE
+    def update_component(self) -> None:
+        num = np.array([self._Klf])
+        den = np.array([1.0, -(1.0 - self._Klf)])
+        unit = Dimension(dimensionless=True)
+        lf = Component("LPF", self.sps, num, den, unit=unit)
+        lf = lf * lf
+        super().__init__(self.name, self.sps, lf.nume, lf.deno, unit=lf.unit)
+        self.TE = lf.TE
         self.TE.name = self.name
-        self.TF = LF.TF
+        self.TF = lf.TF

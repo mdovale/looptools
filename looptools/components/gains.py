@@ -33,9 +33,21 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
+"""Gain and multiplier components for control loops."""
+from __future__ import annotations
+
+from typing import Any, Dict
+
 import numpy as np
+
 from looptools.component import Component
 from looptools.dimension import Dimension
+
+from ._validation import (
+    _validate_numeric,
+    _validate_positive,
+    _validate_str_non_empty,
+)
 
 
 class MultiplierComponent(Component):
@@ -47,7 +59,7 @@ class MultiplierComponent(Component):
     name : str
         Name of the component.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     gain : float
         Gain value.
     unit : Dimension
@@ -59,12 +71,27 @@ class MultiplierComponent(Component):
         Gain applied to the input signal.
     """
 
-    def __init__(self, name, sps, gain, unit):
-        self._gain = gain
-        super().__init__(name, sps, np.array([self._gain]), np.array([1.0]), unit=unit)
-        self.properties = {"gain": (lambda: self.gain, lambda value: setattr(self, "gain", value))}
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        gain: float,
+        unit: Dimension,
+    ) -> None:
+        name_s = _validate_str_non_empty("name", name)
+        sps_f = _validate_positive("sps", sps)
+        self._gain = _validate_numeric("gain", gain)
+        if not isinstance(unit, Dimension):
+            raise TypeError(f"unit must be a Dimension, got {type(unit).__name__}")
 
-    def __deepcopy__(self, memo):
+        super().__init__(
+            name_s, sps_f, np.array([self._gain]), np.array([1.0]), unit=unit
+        )
+        self.properties = {
+            "gain": (lambda: self.gain, lambda v: setattr(self, "gain", v)),
+        }
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> MultiplierComponent:
         new_obj = MultiplierComponent.__new__(MultiplierComponent)
         new_obj.__init__(self.name, self.sps, self._gain, self.unit)
         if getattr(self, "_loop", None) is not None:
@@ -72,16 +99,21 @@ class MultiplierComponent(Component):
         return new_obj
 
     @property
-    def gain(self):
+    def gain(self) -> float:
+        """Gain applied to the input signal."""
         return self._gain
 
     @gain.setter
-    def gain(self, value):
-        self._gain = value
+    def gain(self, value: float) -> None:
+        self._gain = _validate_numeric("gain", value)
         self.update_component()
 
-    def update_component(self):
-        super().__init__(self.name, self.sps, np.array([self._gain]), np.array([1.0]), unit=self.unit)
+    def update_component(self) -> None:
+        super().__init__(
+            self.name, self.sps,
+            np.array([self._gain]), np.array([1.0]),
+            unit=self.unit,
+        )
 
 
 class RightBitShiftComponent(Component):
@@ -93,36 +125,57 @@ class RightBitShiftComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     Cshift : int or float
         Shift value; actual gain is 2^(-Cshift).
 
     Attributes
     ----------
     Cshift : float
-        Exponent of the power-of-two shift.
+        Exponent of the power-of-two shift (gain = 2^(-Cshift)).
     """
 
-    def __init__(self, name, sps, Cshift):
-        self._Cshift = 2.0 ** float(-Cshift)
-        super().__init__(name, sps, np.array([self._Cshift]), np.array([1.0]), unit=Dimension(dimensionless=True))
-        self.properties = {"Cshift": (lambda: self.Cshift, lambda value: setattr(self, "Cshift", value))}
+    def __init__(self, name: str, sps: float, Cshift: float) -> None:
+        name_s = _validate_str_non_empty("name", name)
+        sps_f = _validate_positive("sps", sps)
+        cshift_exp = _validate_numeric("Cshift", Cshift)
+        self._Cshift = 2.0 ** float(-cshift_exp)
 
-    def __deepcopy__(self, memo):
+        super().__init__(
+            name_s,
+            sps_f,
+            np.array([self._Cshift]),
+            np.array([1.0]),
+            unit=Dimension(dimensionless=True),
+        )
+        self.properties = {
+            "Cshift": (lambda: self.Cshift, lambda v: setattr(self, "Cshift", v)),
+        }
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> RightBitShiftComponent:
         new_obj = RightBitShiftComponent.__new__(RightBitShiftComponent)
-        new_obj.__init__(self.name, self.sps, np.log2(self._Cshift))
+        # Cshift exponent = -log2(gain)
+        exponent = -np.log2(self._Cshift)
+        new_obj.__init__(self.name, self.sps, exponent)
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
 
     @property
-    def Cshift(self):
+    def Cshift(self) -> float:
+        """Effective gain (2^(-Cshift))."""
         return self._Cshift
 
     @Cshift.setter
-    def Cshift(self, value):
-        self._Cshift = 2.0 ** float(-value)
+    def Cshift(self, value: float) -> None:
+        self._Cshift = 2.0 ** float(-_validate_numeric("Cshift", value))
         self.update_component()
 
-    def update_component(self):
-        super().__init__(self.name, self.sps, np.array([self._Cshift]), np.array([1.0]), unit=Dimension(dimensionless=True))
+    def update_component(self) -> None:
+        super().__init__(
+            self.name,
+            self.sps,
+            np.array([self._Cshift]),
+            np.array([1.0]),
+            unit=Dimension(dimensionless=True),
+        )
