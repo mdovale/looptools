@@ -286,7 +286,14 @@ class Component:
         self.TE = control.tf(self.nume, self.deno, 1/self.sps)
         self.TE.name = self.name
         self.TF = partial(transfer_function, com=self)
+        self._recreate_derived_attrs()
 
+        if getattr(self, '_loop', None) != None:
+            self._loop.update()
+            self._loop.notify_callbacks()
+
+    def _recreate_derived_attrs(self):
+        """Recreate phase, mag, etc. from self.TF. Used after unpickling."""
         def _get_phase(tf_func, frfr, deg):
             return np.angle(tf_func(frfr), deg=deg)
 
@@ -301,9 +308,16 @@ class Component:
         self.phase_unwrapped = lambda frfr: np.unwrap(self.phase(frfr))
         self.phase_deg_unwrapped = lambda frfr: np.unwrap(self.phase_deg(frfr), period=360)
 
-        if getattr(self, '_loop', None) != None:
-            self._loop.update()
-            self._loop.notify_callbacks()
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Lambdas cannot be pickled; they are recreated in __setstate__ via _recreate_derived_attrs().
+        for attr in ('phase', 'phase_deg', 'mag', 'mag_dB', 'phase_unwrapped', 'phase_deg_unwrapped'):
+            state.pop(attr, None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._recreate_derived_attrs()
 
     def extrapolate_tf(self, f_trans, power=-2, size=2, solver=True):
         """

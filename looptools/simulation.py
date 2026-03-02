@@ -35,13 +35,14 @@
 #
 import copy
 import logging
-import os
 import warnings
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import contextmanager
 from itertools import product
 from typing import Any, Dict, List, Tuple, Callable, Sequence
 
 import numpy as np
+from joblib import Parallel, delayed
+from joblib.parallel import BatchCompletionCallBack
 from scipy.optimize import minimize, OptimizeResult
 from tqdm.auto import tqdm
 
@@ -51,6 +52,30 @@ import looptools.components as lc
 from looptools.loop import LOOP
 
 logger = logging.getLogger(__name__)
+
+# --- Parallel Progress Bar Utility ---
+
+
+@contextmanager
+def tqdm_joblib(tqdm_object: tqdm) -> tqdm:
+    """
+    Context manager to patch joblib to report progress into a tqdm bar.
+    Note: Newer versions of joblib may have built-in support for tqdm,
+    but this remains a reliable method.
+    """
+    class TqdmBatchCompletionCallback(BatchCompletionCallBack):
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    old_callback = Parallel.__init__.__globals__["BatchCompletionCallBack"]
+    Parallel.__init__.__globals__["BatchCompletionCallBack"] = TqdmBatchCompletionCallback
+    try:
+        yield tqdm_object
+    finally:
+        Parallel.__init__.__globals__["BatchCompletionCallBack"] = old_callback
+        tqdm_object.close()
+
 
 # --- Core Sweep Logic ---
 
@@ -102,7 +127,8 @@ def parameter_sweep_nd(
     Performs an N-dimensional parameter sweep in parallel.
 
     This function can be used to analyze loop stability and performance over a
-    grid of parameters, using concurrent.futures for parallel computation.
+    grid of parameters, using joblib for parallel computation (cloudpickle
+    serialization supports loop objects with lambdas).
 
     Parameters
     ----------
@@ -155,42 +181,16 @@ def parameter_sweep_nd(
         f"Starting parallel sweep over {total_points} points using {cores_str} cores."
     )
 
-    # Run tasks in parallel (or sequential when n_jobs=1) with a progress bar
-    # The 'loop' object is deep-copied by the worker for process safety.
-    if n_jobs == 1:
-        results = []
-        for params in tqdm(tasks, desc="Sweeping Parameters"):
-            results.append(
-                _calculate_point(
-                    loop, params, freqs_arr, deg, unwrap_phase, interpolate
-                )
+    # Run tasks in parallel with a progress bar.
+    # joblib uses loky/cloudpickle by default, which can serialize loop objects
+    # containing lambdas (unlike stdlib pickle used by ProcessPoolExecutor).
+    with tqdm_joblib(tqdm(total=total_points, desc="Sweeping Parameters")) as pbar:
+        results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(_calculate_point)(
+                loop, params, freqs_arr, deg, unwrap_phase, interpolate
             )
-    else:
-        max_workers = (
-            min(32, (os.cpu_count() or 1) + 4)
-            if n_jobs == -1
-            else min(n_jobs, os.cpu_count() or 1)
+            for params in tasks
         )
-        results_ordered = [None] * len(tasks)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            future_to_idx = {
-                executor.submit(
-                    _calculate_point,
-                    loop,
-                    params,
-                    freqs_arr,
-                    deg,
-                    unwrap_phase,
-                    interpolate,
-                ): i
-                for i, params in enumerate(tasks)
-            }
-            with tqdm(total=total_points, desc="Sweeping Parameters") as pbar:
-                for future in as_completed(future_to_idx):
-                    idx = future_to_idx[future]
-                    results_ordered[idx] = future.result()
-                    pbar.update(1)
-        results = results_ordered
 
     # --- Collect and reshape results ---
     ugf_flat, pm_flat, mag_flat, phase_flat = zip(*results)

@@ -17,7 +17,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Physics",
 ]
-dependencies = ["numpy", "scipy", "matplotlib", "tqdm", "control", "sympy"]
+dependencies = ["numpy", "scipy", "matplotlib", "tqdm", "control", "sympy", "joblib"]
 
 [project.optional-dependencies]
 dev = ["pytest", "build", "twine", "ruff"]

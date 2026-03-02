@@ -95,3 +95,10 @@ Thumbs.db
 *.log
 *.out
 *.toc
+
+# Some outputs
+*.pdf
+*.png
+*.svg
+*.tex
+*.tikz
