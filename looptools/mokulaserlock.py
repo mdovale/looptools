@@ -42,35 +42,66 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
-class MokuLaserLock(LOOP):
+class LaserLock(LOOP):
     """
-    Feedback loop model for a Moku-based laser locking system.
+    Generic feedback loop model for a heterodyne phase-locking laser lock system.
 
-    This class simulates the signal flow and control elements used in a heterodyne phase-locking setup 
-    implemented with a Liquid Instruments Moku:Pro or Moku:Lab device. It leverages components from 
-    the looptools library to approximate the Moku's internal signal processing pipeline using bit-shift 
-    based log₂ gain representation.
+    This base class defines the signal flow and control elements (Plant, Mixer, LPF,
+    Gain, Servo, Delay) without baked-in sampling frequencies. Subclasses provide
+    hardware-specific sps values.
 
     Parameters
     ----------
-
+    sps : float
+        Main loop sample rate (Hz), used for Servo and Delay components.
+    Plant : Component
+        looptools Component specifying the plant.
+    Amp_reference : float
+        Mixer local oscillator amplitude (Vpp).
+    Amp_input : float
+        Beatnote amplitude (Vpp).
+    LPF_cutoff : float
+        Butterworth LPF cutoff frequency (Hz).
+    LPF_n : int
+        Butterworth LPF number of stages.
+    Cshift : int
+        Gain reduction stage, number of bits for LeftBitShift.
+    Kp_db : float
+        P-gain (dB).
+    f_I : float, optional
+        First integrator crossover frequency (Hz).
+    f_II : float, optional
+        Second integrator crossover frequency (Hz).
+    n_reg : int, optional
+        DSP delay component (number of registers).
+    sps_mixer : float, optional
+        Sample rate for Mixer, LPF, and Gain components (Hz). Defaults to sps.
+    off : list, optional
+        Component names to exclude from the loop.
+    f_trans : float, optional
+        Transfer function extrapolation frequency for the servo.
     """
 
     def __init__(self,
-                Plant, # looptools Component specifying the plant
-                Amp_reference, # Mixer local oscillator amplitude (Vpp)
-                Amp_input, # Beatnote amplitude (Vpp)
-                LPF_cutoff, # Butterworth LPF: cutoff frequency 
-                LPF_n, # Butterworth LPF: number of stages
-                Cshift, # Gain reduction stage, number of bits for LeftBitShift
-                Kp_db, # P-gain (dB)
-                f_I=None, # First integrator crossover frequency (Hz)
-                f_II=None, # Second integrator crossover frequency (Hz)
-                n_reg=None, # DSP delay component (number of registers)
+                sps,
+                Plant,
+                Amp_reference,
+                Amp_input,
+                LPF_cutoff,
+                LPF_n,
+                Cshift,
+                Kp_db,
+                f_I=None,
+                f_II=None,
+                n_reg=None,
+                sps_mixer=None,
+                nume_mixer=None,
                 off=[None],
                 f_trans=None
                 ):
-        super().__init__(78e6)
+        super().__init__(sps)
+        sps_mixer = sps if sps_mixer is None else sps_mixer
+        nume_mixer = [2*np.pi*Amp_input*Amp_reference/sps_mixer] if nume_mixer is None else nume_mixer # Mixer transfer function numerator (rad/s)
 
         # Validate inputs
         assert isinstance(Plant, Component)
@@ -93,14 +124,15 @@ class MokuLaserLock(LOOP):
         self.f_II = f_II
         self.n_reg = n_reg
         self.off = off
-
+        self.sps_mixer = sps_mixer
+        self.nume_mixer = nume_mixer
         self.Kp_log2 = lm.db_to_log2_gain(Kp_db)
 
         if f_I is not None and f_II is None:
-            self.Ki_log2 = lm.gain_for_crossover_frequency(self.Kp_log2, 78e6, f_I, kind='I')
+            self.Ki_log2 = lm.gain_for_crossover_frequency(self.Kp_log2, sps, f_I, kind='I')
             self.Kii_log2 = None
         elif (f_I, f_II) != (None, None):
-            self.Ki_log2, self.Kii_log2 = lm.gain_for_crossover_frequency(self.Kp_log2, 78e6, (f_I, f_II), kind='II')
+            self.Ki_log2, self.Kii_log2 = lm.gain_for_crossover_frequency(self.Kp_log2, sps, (f_I, f_II), kind='II')
         else:
             self.Ki_log2 = None
             self.Kii_log2 = None
@@ -109,22 +141,72 @@ class MokuLaserLock(LOOP):
             self.add_component(Plant)
 
         if "Mixer" not in off:
-            self.add_component(Component("Mixer", 78.125e6, nume=[1.25*2*np.pi*Amp_input*Amp_reference/78.125e6], deno=[1,-1]))
+            self.add_component(Component("Mixer", sps_mixer, nume=nume_mixer, deno=[1,-1]))
 
         if "LPF" not in off:
-            self.add_component(lc.ButterworthLPFComponent("LPF", 78.125e6, LPF_cutoff, LPF_n))
+            self.add_component(lc.ButterworthLPFComponent("LPF", sps_mixer, LPF_cutoff, LPF_n))
 
         if "Gain" not in off:
-            self.add_component(lc.LeftBitShiftComponent("Gain", 78.125e6, Cshift))
+            self.add_component(lc.LeftBitShiftComponent("Gain", sps_mixer, Cshift))
 
         if "Servo" not in off:
-            self.add_component(lc.MokuPIDController("Servo", 78e6, Kp_db, f_I, f_II, None, f_trans=f_trans))
+            self.add_component(lc.MokuPIDController("Servo", sps, Kp_db, f_I, f_II, None, f_trans=f_trans))
 
         if "Delay" not in off:
-            self.add_component(lc.DSPDelayComponent("Delay", 78e6, n_reg=n_reg))
+            self.add_component(lc.DSPDelayComponent("Delay", sps, n_reg=n_reg))
 
         self.update()
         self.register_component_properties()
+
+
+class MokuLaserLock(LaserLock):
+    """
+    Feedback loop model for a Moku-based laser locking system.
+
+    This class simulates the signal flow and control elements used in a heterodyne phase-locking setup 
+    implemented with a Liquid Instruments Moku:Pro or Moku:Lab device. It leverages components from 
+    the looptools library to approximate the Moku's internal signal processing pipeline using bit-shift 
+    based log₂ gain representation.
+
+    Inherits from LaserLock with Moku-specific sampling rates: 78 MHz for the main loop
+    (Servo, Delay) and 78.125 MHz for the Mixer, LPF, and Gain components.
+    """
+
+    # Moku hardware sampling rates (Hz)
+    SPS = 78e6
+    SPS_MIXER = 78.125e6
+
+    def __init__(self,
+                Plant,
+                Amp_reference,
+                Amp_input,
+                LPF_cutoff,
+                LPF_n,
+                Cshift,
+                Kp_db,
+                f_I=None,
+                f_II=None,
+                n_reg=None,
+                off=[None],
+                f_trans=None
+                ):
+        super().__init__(
+            sps=MokuLaserLock.SPS,
+            Plant=Plant,
+            Amp_reference=Amp_reference,
+            Amp_input=Amp_input,
+            LPF_cutoff=LPF_cutoff,
+            LPF_n=LPF_n,
+            Cshift=Cshift,
+            Kp_db=Kp_db,
+            f_I=f_I,
+            f_II=f_II,
+            n_reg=n_reg,
+            sps_mixer=MokuLaserLock.SPS_MIXER,
+            nume_mixer=[1.25*2*np.pi*Amp_input*Amp_reference/MokuLaserLock.SPS_MIXER], # Mixer transfer function numerator (rad/s)
+            off=off,
+            f_trans=f_trans
+        )
 
     def __deepcopy__(self, memo):
         new_obj = MokuLaserLock.__new__(MokuLaserLock)

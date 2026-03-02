@@ -40,10 +40,7 @@ import itertools
 import warnings
 import base64
 import html
-import tikz
-import fitz
 from functools import partial
-import IPython
 from looptools.component import Component
 from looptools.dimension import Dimension
 from looptools.plots import default_rc
@@ -302,12 +299,25 @@ class LOOP:
         -------
         tikz.Picture
             The rendered TikZ picture object.
+
+        Raises
+        ------
+        ImportError
+            If the optional dependencies (PyMuPDF, pytikz, IPython) are not installed.
+            Install with: pip install looptools[diagram]
         """
+        try:
+            import fitz
+            import IPython.display
+            import tikz
+        except ImportError as e:
+            raise ImportError(
+                "block_diagram() requires optional dependencies: PyMuPDF, pytikz, and IPython. "
+                "Install with: pip install looptools[diagram]"
+            ) from e
+
         import html
         import base64
-        import fitz
-        import IPython.display
-        import tikz
 
         def tikz_safe(name):
             return name.replace(" ", "").replace("-", "")

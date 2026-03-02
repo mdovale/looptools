@@ -66,8 +66,8 @@ class Dimension:
             self.numes = []
             self.denos = []
         else:
-            self.numes = numes
-            self.denos = denos
+            self.numes = list(numes)
+            self.denos = list(denos)
 
         self.reduction(self.numes, self.denos)
 
@@ -102,6 +102,29 @@ class Dimension:
         self_denos.extend(other_denos)
 
         return Dimension(self_numes, self_denos)
+
+    def __truediv__(self, other):
+        """
+        Divide this Dimension by another (self / other).
+
+        Returns
+        -------
+        Dimension
+            A new Dimension representing the quotient.
+        """
+        return self * Dimension(other.denos, other.numes)
+
+    def __eq__(self, other):
+        """Return True if self and other represent the same dimension."""
+        if not isinstance(other, Dimension):
+            return NotImplemented
+        return sorted(self.numes) == sorted(other.numes) and sorted(self.denos) == sorted(
+            other.denos
+        )
+
+    def __repr__(self):
+        s = self.unit_string()
+        return f"Dimension({s!r})" if s else "Dimension(dimensionless=True)"
 
     def reduction(self, numes, denos):
         """

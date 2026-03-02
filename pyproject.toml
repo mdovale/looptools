@@ -17,10 +17,11 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Physics",
 ]
-dependencies = ["numpy", "scipy", "pandas", "matplotlib", "numba", "tqdm"]
+dependencies = ["numpy", "scipy", "matplotlib", "tqdm", "control", "sympy"]
 
 [project.optional-dependencies]
 dev = ["pytest", "build", "twine", "ruff"]
+diagram = ["PyMuPDF", "pytikz", "IPython"]
 
 [project.urls]
 Homepage = "https://github.com/mdovale/looptools"
@@ -32,6 +33,12 @@ where = ["."]
 include = ["looptools*"]
 exclude = ["tests*", "notebooks*"]
  
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
 [tool.ruff]
 line-length = 88
 

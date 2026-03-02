@@ -271,8 +271,8 @@ class Component:
         New denominator coefficients; if None, original denominator is kept.
         """
         self.nume = np.array([new_nume])
-        if new_deno != None:
-            self.deno = np.array(self.deno)
+        if new_deno is not None:
+            self.deno = np.array(new_deno)
         self.TE = control.tf(self.nume, self.deno, 1/self.sps)
         self.TE.name = self.name
         self.TF = partial(transfer_function, com=self)
