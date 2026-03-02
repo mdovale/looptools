@@ -79,6 +79,7 @@ ipython_config.py
 dmypy.json
 
 # IDE / editors
+.cursor/
 .idea/
 .vscode/
 *.swp
