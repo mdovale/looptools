@@ -33,13 +33,30 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import numpy as np
+from __future__ import annotations
+
 from functools import singledispatch
-from scipy.optimize import curve_fit
+from typing import Callable, Literal, Protocol
+
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from scipy.interpolate import interp1d
+from scipy.optimize import brentq, curve_fit, root_scalar
+
 from looptools import dsp
 
-def loop_crossover(loop1, loop2, frfr):
+
+class _LoopWithGf(Protocol):
+    """Protocol for objects with a Gf(f) method returning complex transfer function."""
+
+    def Gf(self, f: ArrayLike | None = None) -> NDArray[np.complexfloating]: ...
+
+
+def loop_crossover(
+    loop1: _LoopWithGf,
+    loop2: _LoopWithGf,
+    frfr: ArrayLike,
+) -> float:
     """
     Find the frequency at which the open-loop gain of two control loops crosses over.
 
@@ -72,22 +89,28 @@ def loop_crossover(loop1, loop2, frfr):
     - This function is useful in tuning multi-loop control systems to identify the frequency
       at which control authority shifts between loops.
     """
-    Gf1 = np.abs(loop1.Gf(f=frfr)) # Loop 1 open-loop gain
-    Gf2 = np.abs(loop2.Gf(f=frfr)) # Loop 2 open-loop gain
-    diff = np.array(Gf1-Gf2)
+    frfr_arr = np.asarray(frfr)
+    if frfr_arr.size == 0:
+        return float("nan")
+
+    Gf1 = np.abs(loop1.Gf(f=frfr_arr))
+    Gf2 = np.abs(loop2.Gf(f=frfr_arr))
+    diff = np.asarray(Gf1 - Gf2, dtype=float)
     signs = np.sign(diff)
     signs[signs == 0] = 1  # Replace zeros with 1 to avoid sign change detection issues
     # sign_changes = np.where(np.diff(signs) != 0)[0] + 1
     # return frfr[sign_changes[0]] if sign_changes.size > 0 else np.nan
     sign_changes = np.diff(signs) != 0
-    # Find the first crossover frequency
     crossover_indices = np.where(sign_changes)[0] + 1
     if crossover_indices.size > 0:
-        return frfr[crossover_indices[0]]
-    else:
-        return np.nan
+        return float(frfr_arr[crossover_indices[0]])
+    return float("nan")
 
-def wrap_phase(phase, deg=False):
+
+def wrap_phase(
+    phase: ArrayLike | float,
+    deg: bool = False,
+) -> NDArray[np.floating] | float:
     """
     Wrap phase values to the principal interval [-π, π) or [-180°, 180°).
 
@@ -117,15 +140,16 @@ def wrap_phase(phase, deg=False):
     - This does not perform unwrapping or differentiation.
     - Useful as a post-processing step after phase extraction or manipulation.
     """
-
+    phase_arr = np.asarray(phase, dtype=float)
     if deg:
-        phase_new = (phase + 180.0) % (2 * 180.0) - 180.0
+        phase_new = (phase_arr + 180.0) % 360.0 - 180.0
     else:
-        phase_new = (phase + np.pi) % (2 * np.pi) - np.pi
+        phase_new = (phase_arr + np.pi) % (2 * np.pi) - np.pi
 
-    return phase_new
+    return float(phase_new) if phase_arr.ndim == 0 else phase_new
 
-def tf_group_delay(f, tf):
+
+def tf_group_delay(f: ArrayLike, tf: ArrayLike) -> NDArray[np.floating]:
     """
     Compute the group delay of a complex transfer function.
 
@@ -154,29 +178,35 @@ def tf_group_delay(f, tf):
     - Group delay is defined as:
         gd(f) = -d(phase) / d(ω) = -d(∠TF) / d(2πf)
     """
-    # : To avoid making all Nan due to np.unwrap, the case with Nan is carefully treated
-    tfnew, nanarray = dsp.nan_checker(tf)
-    isnan = True in nanarray
+    f_arr = np.asarray(f)
+    tf_arr = np.asarray(tf, dtype=complex)
+    if f_arr.size != tf_arr.size:
+        raise ValueError(
+            f"f and tf must have the same length, got {f_arr.size} and {tf_arr.size}"
+        )
+
+    tfnew, nanarray = dsp.nan_checker(tf_arr)
+    has_nan = np.any(nanarray)
 
     phase = np.angle(tfnew, deg=False)
     phase = np.unwrap(phase)
-    gd = - np.gradient(phase, 2*np.pi*f[~nanarray])
+    gd = -np.gradient(phase, 2 * np.pi * f_arr[~nanarray])
 
-    if not isnan:
-        output = gd
-    else:
-        output = np.zeros(tf.size)
-        idx = 0
-        for i, t in enumerate(tf):
-            if not nanarray[i]:
-                output[i] = gd[idx]
-                idx += 1
-            else:
-                output[i] = np.nan
-
+    if not has_nan:
+        return np.asarray(gd, dtype=float)
+    output = np.full(tf_arr.size, np.nan, dtype=float)
+    idx = 0
+    for i in range(tf_arr.size):
+        if not nanarray[i]:
+            output[i] = gd[idx]
+            idx += 1
     return output
 
-def polynomial_conversion_s_to_z(s_coeffs, sps):
+
+def polynomial_conversion_s_to_z(
+    s_coeffs: ArrayLike,
+    sps: float,
+) -> NDArray[np.floating]:
     """
     Convert polynomial coefficients from the Laplace (s) domain to the discrete-time (z) domain.
 
@@ -208,23 +238,35 @@ def polynomial_conversion_s_to_z(s_coeffs, sps):
     - This transformation preserves the shape of the analog response for low frequencies,
         but is only accurate for systems sampled at sufficiently high rates (relative to bandwidth).
     """
+    s_arr = np.asarray(s_coeffs, dtype=float)
+    if s_arr.ndim != 1:
+        raise ValueError(f"s_coeffs must be 1D, got ndim={s_arr.ndim}")
+    if sps <= 0:
+        raise ValueError(f"sps must be positive, got {sps}")
 
-    size = np.shape(s_coeffs)[0]
-    z_coeffs = np.zeros(size)
-    for i,c in enumerate(s_coeffs):
-        order = size-(i+1)
+    size = s_arr.size
+    z_coeffs = np.zeros(size, dtype=float)
+    for i, c in enumerate(s_arr):
+        order = size - (i + 1)
         base0 = np.array([sps, -sps])
         base = np.ones(1)
-        for j in range(order):
+        for _ in range(order):
             base = np.convolve(base, base0)
-        coord = c*base
-        coord = np.concatenate((np.zeros(size-order-1), coord), axis=0)
+        coord = c * base
+        coord = np.concatenate((np.zeros(size - order - 1), coord), axis=0)
         z_coeffs += coord
 
     return z_coeffs
 
+
 @singledispatch
-def get_margin(tf, f, dB=False, deg=True):
+def get_margin(
+    tf: list[ArrayLike],
+    f: ArrayLike,
+    *,
+    dB: bool = False,
+    deg: bool = True,
+) -> tuple[float, float]:
     """
     Compute the phase margin from a transfer function given as [magnitude, phase] arrays.
 
@@ -264,11 +306,14 @@ def get_margin(tf, f, dB=False, deg=True):
     get_gain_margin : Compute the gain margin at the phase crossover frequency.
     get_margin.register(np.ndarray) : Overload for complex-valued transfer functions.
     """
-    # : To avoid making all Nan due to numpy processing, the case with Nan is carefully treated
+    if len(tf) != 2:
+        raise ValueError(
+            f"tf must be [magnitude, phase] with 2 elements, got {len(tf)}"
+        )
+    f_arr = np.asarray(f)
     mag, nanarray = dsp.nan_checker(tf[0])
-    phase = tf[1][~nanarray]
-    #phase = np.unwrap(phase, period=360 if deg else 2*np.pi)
-    fnew = f[~nanarray]
+    phase = np.asarray(tf[1])[~nanarray]
+    fnew = f_arr[~nanarray]
 
     if dB:
         index = dsp.index_of_the_nearest(mag, 0)
@@ -281,12 +326,20 @@ def get_margin(tf, f, dB=False, deg=True):
         margin = np.pi + phase[index]
     return ugf, margin
 
+
 @get_margin.register(np.ndarray)
-def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
+def _get_margin_ndarray(
+    tf: NDArray[np.complexfloating],
+    f: ArrayLike,
+    *,
+    deg: bool = True,
+    unwrap_phase: bool = True,
+    interpolate: bool = True,
+) -> tuple[float, float]:
     """
     Compute the phase margin from a complex-valued transfer function array.
 
-    The phase margin is evaluated at the unity gain frequency (UGF), where the 
+    The phase margin is evaluated at the unity gain frequency (UGF), where the
     transfer function's magnitude is 1.
 
     Parameters
@@ -296,15 +349,15 @@ def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
     f : array_like
         Frequencies (Hz) corresponding to the values in `tf`.
     deg : bool, optional
-        If True, return phase margin in degrees. If False, return in radians. 
+        If True, return phase margin in degrees. If False, return in radians.
         Default is True.
     unwrap_phase : bool, optional
-        If True (default), unwrap the phase before evaluating the margin. 
-        This is crucial for a correct margin calculation in most systems, as it 
+        If True (default), unwrap the phase before evaluating the margin.
+        This is crucial for a correct margin calculation in most systems, as it
         ensures phase continuity across the -180° boundary. Default is True.
     interpolate : bool, optional
-        If True (default), interpolate the magnitude and phase to find a more 
-        precise unity gain frequency. If False, the nearest point in the data is 
+        If True (default), interpolate the magnitude and phase to find a more
+        precise unity gain frequency. If False, the nearest point in the data is
         used. Default is True.
 
     Returns
@@ -322,18 +375,22 @@ def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
       margin indicates stability, while a negative margin indicates instability.
     - NaNs in the input transfer function are removed before processing.
     """
-    tf = np.asarray(tf)
-    f = np.asarray(f)
+    tf_arr = np.asarray(tf, dtype=complex)
+    f_arr = np.asarray(f, dtype=float)
+    if tf_arr.size != f_arr.size:
+        raise ValueError(
+            f"tf and f must have the same length, got {tf_arr.size} and {f_arr.size}"
+        )
 
     # Remove NaNs in transfer function
-    valid = ~np.isnan(tf)
+    valid = ~np.isnan(tf_arr)
     if not np.any(valid):
-        return np.nan, np.nan
-        
-    fnew = f[valid]
-    tfnew = tf[valid]
-    
-    if len(fnew) < 2: # Cannot interpolate with fewer than 2 points
+        return float("nan"), float("nan")
+
+    fnew = f_arr[valid]
+    tfnew = tf_arr[valid]
+
+    if len(fnew) < 2:
         interpolate = False
 
     mag = np.abs(tfnew)
@@ -349,7 +406,7 @@ def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
         # For this implementation, we state it's undefined.
         # A perfectly-gained system (mag all 1) would be an exception.
         if not np.all(np.isclose(mag, 1)):
-             return np.nan, np.nan
+            return float("nan"), float("nan")
 
     # Compute phase in radians
     phase_rad = np.angle(tfnew)
@@ -362,47 +419,40 @@ def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
         phase = phase_rad
 
     if interpolate:
-        # Interpolate to find the precise UGF
-        # Use linear interpolation on log-frequency for standard Bode plot behavior
         log_f = np.log10(fnew)
-        mag_interp = interp1d(log_f, mag, kind="linear", bounds_error=False, fill_value="extrapolate")
-        phase_interp = interp1d(log_f, phase, kind="linear", bounds_error=False, fill_value="extrapolate")
-
-        # To find the UGF, we find the root of mag(f) - 1 = 0.
-        # We can do this by finding where log10(mag) crosses 0.
+        phase_interp = interp1d(
+            log_f, phase, kind="linear", bounds_error=False, fill_value="extrapolate"
+        )
         log_mag_interp = interp1d(log_f, np.log10(mag), kind="linear")
-        
+
         # Find all crossings by looking at sign changes
         signs = np.sign(np.log10(mag)[:-1] * np.log10(mag)[1:])
         crossing_indices = np.where(signs < 0)[0]
-        
+
         if len(crossing_indices) == 0:
-             # This can happen if the only crossing is at the very edge, handle robustly
-             # Or if the check at the top failed to catch a weird case
-             ugf_idx = np.argmin(np.abs(mag - 1))
-             ugf = fnew[ugf_idx]
-             phase_at_ugf = phase[ugf_idx]
+            ugf_idx = np.argmin(np.abs(mag - 1))
+            ugf = float(fnew[ugf_idx])
+            phase_at_ugf = phase[ugf_idx]
         else:
-            # For phase margin, we care about the *first* time gain crosses 1 from above
-            from scipy.optimize import brentq
             try:
-                # Find the root of log10(mag) = 0, which is where mag = 1
-                log_ugf = brentq(log_mag_interp, log_f[crossing_indices[0]], log_f[crossing_indices[0]+1])
+                log_ugf = brentq(
+                    log_mag_interp,
+                    log_f[crossing_indices[0]],
+                    log_f[crossing_indices[0] + 1],
+                )
                 ugf = 10**log_ugf
-                phase_at_ugf = phase_interp(log_ugf)
+                phase_at_ugf = float(phase_interp(log_ugf))
             except (ValueError, RuntimeError):
-                # Fallback if root finding fails
                 ugf_idx = np.argmin(np.abs(mag - 1))
-                ugf = fnew[ugf_idx]
+                ugf = float(fnew[ugf_idx])
                 phase_at_ugf = phase[ugf_idx]
 
     else:
-        # Use the nearest point to unity gain
         ugf_idx = np.argmin(np.abs(mag - 1))
-        ugf = fnew[ugf_idx]
+        ugf = float(fnew[ugf_idx])
         phase_at_ugf = phase[ugf_idx]
 
-    # --- CORRECTED PHASE MARGIN CALCULATION ---
+    # Phase margin = Phase(at UGF) + 180°, wrapped to [-180, 180)
     # The formula is simply Phase + 180 (or pi).
     # This is correct ONLY if the phase is unwrapped.
     if deg:
@@ -412,7 +462,13 @@ def _(tf, f, deg=True, unwrap_phase=True, interpolate=True):
 
     return ugf, (margin + 180) % 360 - 180
 
-def tf_power_fitting(f, tf, fnew, power):
+
+def tf_power_fitting(
+    f: ArrayLike,
+    tf: ArrayLike,
+    fnew: ArrayLike,
+    power: float,
+) -> NDArray[np.complexfloating]:
     """
     Fit and extrapolate a transfer function magnitude using a power-law model.
 
@@ -437,19 +493,29 @@ def tf_power_fitting(f, tf, fnew, power):
     The fitting is done on the magnitude |TF(f)|. The resulting extrapolation assumes
     a phase consistent with the complex model `TF ∝ (j2πf)^power`.
     """
-    def power_law(freq, a, b, mag=False):
-        omega = 2*np.pi*freq
-        s = 1j*omega
-        out = a*s**b
+    f_arr = np.asarray(f)
+    tf_arr = np.asarray(tf, dtype=complex)
+    fnew_arr = np.asarray(fnew)
+
+    def power_law(freq: ArrayLike, a: float, b: float, *, mag: bool = False) -> NDArray:
+        omega = 2 * np.pi * freq
+        s = 1j * omega
+        out = a * s**b
         return np.abs(out) if mag else out
 
-    fabs = lambda f, a: power_law(f, a, b=power, mag=True)
-    popt, pcov = curve_fit(fabs, f, np.abs(tf))
-    tfnew = power_law(fnew, popt[0], b=power, mag=False)
+    def fabs(freq: ArrayLike, a: float) -> NDArray:
+        return power_law(freq, a, power, mag=True)
 
-    return tfnew
+    popt, _ = curve_fit(fabs, f_arr, np.abs(tf_arr))
+    return power_law(fnew_arr, popt[0], power, mag=False)
 
-def tf_power_solver(f, tf, fnew, power):
+
+def tf_power_solver(
+    f: float | np.floating,
+    tf: complex | np.complexfloating,
+    fnew: ArrayLike,
+    power: float,
+) -> NDArray[np.complexfloating]:
     """
     Extrapolate a transfer function using a power-law model from a single reference point.
 
@@ -472,19 +538,29 @@ def tf_power_solver(f, tf, fnew, power):
     Raises
     ------
     ValueError
-        If `f` is not a float.
+        If `f` is not a scalar (float or numpy scalar).
     """
-    if not isinstance(f, float):
-        raise ValueError(f'invalid type of f {type(f)}')
+    if not (np.isscalar(f) and isinstance(f, (int, float, np.integer, np.floating))):
+        raise ValueError(f"f must be a scalar frequency in Hz, got {type(f).__name__}")
 
-    s = 1j*2*np.pi*f
-    a = np.abs(tf/s**power)
-    snew = 1j*2*np.pi*fnew
-    tfnew = a*snew**power
+    f_val = float(f)
+    s = 1j * 2 * np.pi * f_val
+    a = np.abs(tf / s**power)
+    fnew_arr = np.asarray(fnew)
+    snew = 1j * 2 * np.pi * fnew_arr
+    return np.asarray(a * snew**power, dtype=complex)
 
-    return tfnew
 
-def tf_power_extrapolate(f, tf, f_trans, power, side='left', size=2, solver=True):
+def tf_power_extrapolate(
+    f: ArrayLike,
+    tf: ArrayLike,
+    f_trans: float,
+    power: float,
+    *,
+    side: Literal["left", "right"] = "left",
+    size: int = 2,
+    solver: bool = True,
+) -> NDArray[np.complexfloating]:
     """
     Extrapolate a transfer function below a transition frequency using a power-law model.
 
@@ -508,24 +584,51 @@ def tf_power_extrapolate(f, tf, f_trans, power, side='left', size=2, solver=True
     tfnew : ndarray
         Complex-valued transfer function over `f`, extrapolated below `f_trans`.
     """
-    idx = dsp.index_of_the_nearest(f, f_trans)
+    f_arr = np.asarray(f)
+    tf_arr = np.asarray(tf, dtype=complex)
+    if f_arr.size != tf_arr.size:
+        raise ValueError(
+            f"f and tf must have the same length, got {f_arr.size} and {tf_arr.size}"
+        )
+    if side not in ("left", "right"):
+        raise ValueError(f"side must be 'left' or 'right', got {side!r}")
+    if size < 1:
+        raise ValueError(f"size must be >= 1, got {size}")
+
+    idx = dsp.index_of_the_nearest(f_arr, f_trans)
 
     if solver:
-        tfnew = tf_power_solver(f[idx], tf[idx], f, power=power)
+        tfnew = tf_power_solver(float(f_arr[idx]), tf_arr[idx], f_arr, power=power)
     else:
-        ftmp, tftmp = dsp.crop_data(f, tf, xmin=f_trans, xmax=np.max(f))
+        ftmp, tftmp = dsp.crop_data(
+            f_arr, tf_arr, xmin=f_trans, xmax=float(np.max(f_arr))
+        )
         ftmp = ftmp[:size]
         tftmp = tftmp[:size]
-        tfnew = tf_power_fitting(ftmp, tftmp, f, power=power)
+        tfnew = tf_power_fitting(ftmp, tftmp, f_arr, power=power)
 
-    if side == 'left':
-        tfnew[f>f_trans] = tf[f>f_trans]
-    elif side == 'right':
-        tfnew[f<f_trans] = tf[f<f_trans]
+    tfnew = np.asarray(tfnew, dtype=complex).copy()
+    if side == "left":
+        mask = f_arr > f_trans
+        tfnew[mask] = tf_arr[mask]
+    else:
+        mask = f_arr < f_trans
+        tfnew[mask] = tf_arr[mask]
 
     return tfnew
 
-def add_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
+
+def add_transfer_function(
+    f: ArrayLike,
+    tf1: Callable[[ArrayLike], NDArray[np.complexfloating]],
+    tf2: Callable[[ArrayLike], NDArray[np.complexfloating]],
+    *,
+    extrapolate: bool = False,
+    f_trans: float = 1e-1,
+    power: float = -2,
+    size: int = 2,
+    solver: bool = True,
+) -> NDArray[np.complexfloating]:
     """
     Return the sum of two transfer functions, with optional extrapolation below a transition frequency.
 
@@ -553,17 +656,28 @@ def add_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2
     tf : ndarray
         Complex-valued array of the summed transfer functions (extrapolated if enabled).
     """
-    tf1f = tf1(f)
-    tf2f = tf2(f)
+    f_arr = np.asarray(f)
+    tf1f = np.asarray(tf1(f_arr), dtype=complex)
+    tf2f = np.asarray(tf2(f_arr), dtype=complex)
 
     if extrapolate:
-        tf = tf_power_extrapolate(f, tf1f + tf2f, f_trans=f_trans, power=power, size=size, solver=solver)
-    else:
-        tf = tf1f + tf2f
+        return tf_power_extrapolate(
+            f_arr, tf1f + tf2f, f_trans, power, size=size, solver=solver
+        )
+    return tf1f + tf2f
 
-    return tf
 
-def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2, size=2, solver=True):
+def mul_transfer_function(
+    f: ArrayLike,
+    tf1: Callable[[ArrayLike], NDArray[np.complexfloating]],
+    tf2: Callable[[ArrayLike], NDArray[np.complexfloating]],
+    *,
+    extrapolate: bool = False,
+    f_trans: float = 1e-1,
+    power: float = -2,
+    size: int = 2,
+    solver: bool = True,
+) -> NDArray[np.complexfloating]:
     """
     Return the product of two transfer functions, with optional extrapolation below a transition frequency.
 
@@ -591,17 +705,24 @@ def mul_transfer_function(f, tf1, tf2, extrapolate=False, f_trans=1e-1, power=-2
     tf : ndarray
         Complex-valued array of the multiplied transfer functions (extrapolated if enabled).
     """
-    tf1f = tf1(f)
-    tf2f = tf2(f)
+    f_arr = np.asarray(f)
+    tf1f = np.asarray(tf1(f_arr), dtype=complex)
+    tf2f = np.asarray(tf2(f_arr), dtype=complex)
 
     if extrapolate:
-        tf = tf_power_extrapolate(f, tf1f * tf2f, f_trans=f_trans, power=power, size=size, solver=solver)
-    else:
-        tf = tf1f * tf2f
+        return tf_power_extrapolate(
+            f_arr, tf1f * tf2f, f_trans, power, size=size, solver=solver
+        )
+    return tf1f * tf2f
 
-    return tf
 
-def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I'):
+def gain_for_crossover_frequency(
+    Kp_log2: float,
+    sps: float,
+    f_cross: float | tuple[float, float],
+    *,
+    kind: Literal["I", "II", "D"] = "I",
+) -> float | tuple[float, float]:
     """
     Compute log₂ gain for I, II, or D block so that its magnitude matches the target at f_cross.
 
@@ -628,15 +749,21 @@ def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I'):
 
     Raises
     ------
-    AssertionError
+    ValueError
         If parameters are missing or invalid.
     """
-    assert kind in ['I', 'II', 'D'], f"Invalid kind: {kind}"
-    Kp = 2 ** Kp_log2
+    if kind not in ("I", "II", "D"):
+        raise ValueError(f"kind must be 'I', 'II', or 'D', got {kind!r}")
+    if sps <= 0:
+        raise ValueError(f"sps must be positive, got {sps}")
 
-    if kind == 'II':
-        assert isinstance(f_cross, (tuple, list)) and len(f_cross) == 2, \
-            "For kind='II', f_cross must be a tuple: (f_I, f_II)."
+    Kp = 2**Kp_log2
+
+    if kind == "II":
+        if not isinstance(f_cross, (tuple, list)) or len(f_cross) != 2:
+            raise ValueError(
+                "For kind='II', f_cross must be a tuple of two frequencies: (f_I, f_II)"
+            )
         f_I, f_II = f_cross
 
         omega_I = 2 * np.pi * f_I / sps
@@ -653,23 +780,29 @@ def gain_for_crossover_frequency(Kp_log2, sps, f_cross, kind='I'):
         mag_PI = abs(PI_val)
 
         # Step 3: match II gain
-        Kii = mag_PI * (sin_II ** 2)
+        Kii = mag_PI * (sin_II**2)
 
         return np.log2(Ki), np.log2(Kii)
 
-    elif kind == 'I':
+    if kind == "I":
         omega = 2 * np.pi * f_cross / sps
         sin_term = 2 * np.sin(omega / 2)
         return np.log2(Kp * sin_term)
 
-    elif kind == 'D':
-        omega = 2 * np.pi * f_cross / sps
-        exp_negj = np.exp(-1j * omega)
-        mag_discrete = abs((1 - exp_negj) / (1 + exp_negj))
-        mag_discrete = max(mag_discrete, 1e-12)
-        return np.log2(Kp / mag_discrete)
-    
-def Klf_from_cutoff(f_c, sps, n=1):
+    # kind == 'D'
+    omega = 2 * np.pi * f_cross / sps
+    exp_negj = np.exp(-1j * omega)
+    mag_discrete = abs((1 - exp_negj) / (1 + exp_negj))
+    mag_discrete = max(mag_discrete, 1e-12)
+    return np.log2(Kp / mag_discrete)
+
+
+def Klf_from_cutoff(
+    f_c: float,
+    sps: float,
+    *,
+    n: int = 1,
+) -> float:
     """
     Compute log2 loop gain `Klf` from cutoff frequency for an n-stage IIR LPF.
 
@@ -689,28 +822,32 @@ def Klf_from_cutoff(f_c, sps, n=1):
     Klf : float
         Loop filter gain in log2 scale (i.e., α = 2^-Klf).
     """
-    from scipy.optimize import root_scalar
+    if f_c <= 0 or sps <= 0:
+        raise ValueError(f"f_c and sps must be positive, got f_c={f_c}, sps={sps}")
+    if n < 1:
+        raise ValueError(f"n must be >= 1, got {n}")
+
     T = 1.0 / sps
     omega = 2 * np.pi * f_c * T  # Normalized digital frequency (rad/sample)
 
-    def H_mag(alpha):
-        # Magnitude of a single IIR stage at ω
+    def H_mag(alpha: float) -> float:
         num = alpha
-        den = np.sqrt(1 - 2*(1 - alpha)*np.cos(omega) + (1 - alpha)**2)
+        den = np.sqrt(1 - 2 * (1 - alpha) * np.cos(omega) + (1 - alpha) ** 2)
         mag = num / den
-        return mag ** n
+        return mag**n
 
     def error_fn(alpha):
         return 20 * np.log10(H_mag(alpha)) + 3  # match -3 dB
 
-    sol = root_scalar(error_fn, bracket=[1e-6, 1.0 - 1e-6], method='bisect')
+    sol = root_scalar(error_fn, bracket=[1e-6, 1.0 - 1e-6], method="bisect")
     if not sol.converged:
         raise RuntimeError("Failed to converge while solving for α.")
 
     alpha = sol.root
-    return -np.log2(alpha)
+    return float(-np.log2(alpha))
 
-def log2_gain_to_db(log2_gain):
+
+def log2_gain_to_db(log2_gain: float) -> float:
     """
     Converts base-2 logarithmic gain to dB.
 
@@ -730,9 +867,10 @@ def log2_gain_to_db(log2_gain):
     20.0
     """
     linear_gain = 2**log2_gain
-    return 20 * np.log10(linear_gain)
+    return float(20 * np.log10(linear_gain))
 
-def db_to_log2_gain(db_gain):
+
+def db_to_log2_gain(db_gain: float) -> float:
     """
     Converts gain in dB to base-2 logarithmic gain.
 
@@ -751,10 +889,11 @@ def db_to_log2_gain(db_gain):
     >>> db_to_log2_gain(20.0)
     3.3219...
     """
-    linear_gain = 10**(db_gain / 20)
-    return np.log2(linear_gain)
+    linear_gain = 10 ** (db_gain / 20)
+    return float(np.log2(linear_gain))
 
-def linear_to_log2_gain(linear_gain):
+
+def linear_to_log2_gain(linear_gain: float) -> float:
     """
     Converts linear gain to base-2 logarithmic gain.
 
@@ -773,4 +912,6 @@ def linear_to_log2_gain(linear_gain):
     >>> linear_to_log2_gain(10.0)
     3.3219...
     """
-    return np.log2(linear_gain)
+    if linear_gain <= 0:
+        raise ValueError(f"linear_gain must be positive, got {linear_gain}")
+    return float(np.log2(linear_gain))
