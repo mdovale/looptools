@@ -33,10 +33,43 @@
 # export authority as may be required before exporting this software to
 # foreign countries or providing access to foreign persons.
 #
+from __future__ import annotations
+
+import numbers
+from typing import Any, Dict
+
 import numpy as np
+
+import looptools.loopmath as lm
 from looptools.component import Component
 from looptools.dimension import Dimension
-import looptools.loopmath as lm
+
+
+def _validate_positive(name: str, value: float, *, strict: bool = True) -> float:
+    """Validate and coerce to positive float. Raises TypeError or ValueError."""
+    if not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be numeric, got {type(value).__name__}")
+    v = float(value)
+    if strict and v <= 0:
+        raise ValueError(f"{name} must be positive, got {v}")
+    return v
+
+
+def _validate_non_negative(name: str, value: float) -> float:
+    """Validate and coerce to non-negative float. Raises TypeError or ValueError."""
+    if not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be numeric, got {type(value).__name__}")
+    v = float(value)
+    if v < 0:
+        raise ValueError(f"{name} must be non-negative, got {v}")
+    return v
+
+
+def _validate_numeric(name: str, value: float) -> float:
+    """Validate and coerce to float. Raises TypeError."""
+    if not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be numeric, got {type(value).__name__}")
+    return float(value)
 
 
 class ActuatorComponent(Component):
@@ -50,11 +83,11 @@ class ActuatorComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     Ka_pzt : float
-        Actuator gain.
+        Actuator gain. Must be positive.
     Fa_pzt : float
-        Actuator cutoff frequency (Hz).
+        Actuator cutoff frequency (Hz). Must be positive.
     unit : Dimension
         Dimensional unit of the actuator.
 
@@ -66,45 +99,64 @@ class ActuatorComponent(Component):
         Cutoff frequency.
     """
 
-    def __init__(self, name, sps, Ka_pzt, Fa_pzt, unit):
-        self._Fa_pzt = Fa_pzt
-        self._Ka_pzt = Ka_pzt
-        nume = lm.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), sps)
-        deno = lm.polynomial_conversion_s_to_z(np.array([1.0 / (2.0 * np.pi * self._Fa_pzt), 1.0]), sps)
-        super().__init__(name, sps, nume, deno, unit=unit)
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        Ka_pzt: float,
+        Fa_pzt: float,
+        unit: Dimension,
+    ) -> None:
+        sps_f = _validate_positive("sps", sps)
+        self._Ka_pzt = _validate_positive("Ka_pzt", Ka_pzt)
+        self._Fa_pzt = _validate_positive("Fa_pzt", Fa_pzt)
+        if not isinstance(unit, Dimension):
+            raise TypeError(f"unit must be a Dimension, got {type(unit).__name__}")
+
+        nume = lm.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), sps_f)
+        deno = lm.polynomial_conversion_s_to_z(
+            np.array([1.0 / (2.0 * np.pi * self._Fa_pzt), 1.0]), sps_f
+        )
+        super().__init__(name, sps_f, nume, deno, unit=unit)
         self.properties = {
-            "Ka_pzt": (lambda: self.Ka_pzt, lambda value: setattr(self, "Ka_pzt", value)),
-            "Fa_pzt": (lambda: self.Fa_pzt, lambda value: setattr(self, "Fa_pzt", value)),
+            "Ka_pzt": (lambda: self.Ka_pzt, lambda v: setattr(self, "Ka_pzt", v)),
+            "Fa_pzt": (lambda: self.Fa_pzt, lambda v: setattr(self, "Fa_pzt", v)),
         }
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: Dict[int, Any]) -> ActuatorComponent:
         new_obj = ActuatorComponent.__new__(ActuatorComponent)
-        new_obj.__init__(self.name, self.sps, self._Ka_pzt, self._Fa_pzt, self.unit)
+        new_obj.__init__(
+            self.name, self.sps, self._Ka_pzt, self._Fa_pzt, self.unit
+        )
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
 
     @property
-    def Fa_pzt(self):
+    def Fa_pzt(self) -> float:
         return self._Fa_pzt
 
     @Fa_pzt.setter
-    def Fa_pzt(self, value):
-        self._Fa_pzt = float(value)
+    def Fa_pzt(self, value: float) -> None:
+        self._Fa_pzt = _validate_positive("Fa_pzt", value)
         self.update_component()
 
     @property
-    def Ka_pzt(self):
+    def Ka_pzt(self) -> float:
         return self._Ka_pzt
 
     @Ka_pzt.setter
-    def Ka_pzt(self, value):
-        self._Ka_pzt = float(value)
+    def Ka_pzt(self, value: float) -> None:
+        self._Ka_pzt = _validate_positive("Ka_pzt", value)
         self.update_component()
 
-    def update_component(self):
-        nume = lm.polynomial_conversion_s_to_z(np.array([self._Ka_pzt]), self.sps)
-        deno = lm.polynomial_conversion_s_to_z(np.array([1.0 / (2.0 * np.pi * self._Fa_pzt), 1.0]), self.sps)
+    def update_component(self) -> None:
+        nume = lm.polynomial_conversion_s_to_z(
+            np.array([self._Ka_pzt]), self.sps
+        )
+        deno = lm.polynomial_conversion_s_to_z(
+            np.array([1.0 / (2.0 * np.pi * self._Fa_pzt), 1.0]), self.sps
+        )
         super().__init__(self.name, self.sps, nume, deno, unit=self.unit)
 
 
@@ -119,16 +171,21 @@ class ImplicitAccumulatorComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     """
 
-    def __init__(self, name, sps):
-        nume = lm.polynomial_conversion_s_to_z(np.array([2.0 * np.pi]), sps)
-        deno = lm.polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps)
-        super().__init__(name, sps, nume, deno, unit=Dimension(["rad"], ["Hz"]))
+    def __init__(self, name: str, sps: float) -> None:
+        sps_f = _validate_positive("sps", sps)
+        nume = lm.polynomial_conversion_s_to_z(np.array([2.0 * np.pi]), sps_f)
+        deno = lm.polynomial_conversion_s_to_z(np.array([1.0, 0.0]), sps_f)
+        super().__init__(
+            name, sps_f, nume, deno, unit=Dimension(["rad"], ["Hz"])
+        )
 
-    def __deepcopy__(self, memo):
-        new_obj = ImplicitAccumulatorComponent.__new__(ImplicitAccumulatorComponent)
+    def __deepcopy__(self, memo: Dict[int, Any]) -> ImplicitAccumulatorComponent:
+        new_obj = ImplicitAccumulatorComponent.__new__(
+            ImplicitAccumulatorComponent
+        )
         new_obj.__init__(self.name, self.sps)
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
@@ -153,13 +210,13 @@ class LeadLagComponent(Component):
     name : str
         Component name.
     sps : float
-        Sample rate in Hz.
+        Sample rate in Hz. Must be positive.
     K : float
-        Gain factor.
+        Gain factor (may be negative for inverting).
     fz : float
-        Zero frequency in Hz.
+        Zero frequency in Hz. Must be non-negative.
     fp : float
-        Pole frequency in Hz.
+        Pole frequency in Hz. Must be non-negative.
     unit : Dimension, optional
         Dimensional unit of the signal. Defaults to dimensionless.
 
@@ -173,56 +230,70 @@ class LeadLagComponent(Component):
         Pole frequency.
     """
 
-    def __init__(self, name, sps, K, fz, fp, unit=Dimension(dimensionless=True)):
-        self._K = float(K)
-        self._fz = float(fz)
-        self._fp = float(fp)
+    def __init__(
+        self,
+        name: str,
+        sps: float,
+        K: float,
+        fz: float,
+        fp: float,
+        unit: Dimension = Dimension(dimensionless=True),
+    ) -> None:
+        sps_f = _validate_positive("sps", sps)
+        self._K = _validate_numeric("K", K)
+        self._fz = _validate_non_negative("fz", fz)
+        self._fp = _validate_non_negative("fp", fp)
+        if not isinstance(unit, Dimension):
+            raise TypeError(f"unit must be a Dimension, got {type(unit).__name__}")
+
         w_z = 2 * np.pi * self._fz
         w_p = 2 * np.pi * self._fp
         nume = np.array([self._K, self._K * w_z])
         deno = np.array([1.0, w_p])
-        super().__init__(name, sps, nume, deno, unit=unit)
+        super().__init__(name, sps_f, nume, deno, unit=unit)
         self.properties = {
-            "K": (lambda: self.K, lambda value: setattr(self, "K", value)),
-            "fz": (lambda: self.fz, lambda value: setattr(self, "fz", value)),
-            "fp": (lambda: self.fp, lambda value: setattr(self, "fp", value)),
+            "K": (lambda: self.K, lambda v: setattr(self, "K", v)),
+            "fz": (lambda: self.fz, lambda v: setattr(self, "fz", v)),
+            "fp": (lambda: self.fp, lambda v: setattr(self, "fp", v)),
         }
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: Dict[int, Any]) -> LeadLagComponent:
         new_obj = LeadLagComponent.__new__(LeadLagComponent)
-        new_obj.__init__(self.name, self.sps, self._K, self._fz, self._fp, self.unit)
+        new_obj.__init__(
+            self.name, self.sps, self._K, self._fz, self._fp, self.unit
+        )
         if getattr(self, "_loop", None) is not None:
             new_obj._loop = self._loop
         return new_obj
 
     @property
-    def K(self):
+    def K(self) -> float:
         return self._K
 
     @K.setter
-    def K(self, value):
-        self._K = float(value)
+    def K(self, value: float) -> None:
+        self._K = _validate_numeric("K", value)
         self.update_component()
 
     @property
-    def fz(self):
+    def fz(self) -> float:
         return self._fz
 
     @fz.setter
-    def fz(self, value):
-        self._fz = float(value)
+    def fz(self, value: float) -> None:
+        self._fz = _validate_non_negative("fz", value)
         self.update_component()
 
     @property
-    def fp(self):
+    def fp(self) -> float:
         return self._fp
 
     @fp.setter
-    def fp(self, value):
-        self._fp = float(value)
+    def fp(self, value: float) -> None:
+        self._fp = _validate_non_negative("fp", value)
         self.update_component()
 
-    def update_component(self):
+    def update_component(self) -> None:
         w_z = 2 * np.pi * self._fz
         w_p = 2 * np.pi * self._fp
         nume = np.array([self._K, self._K * w_z])
