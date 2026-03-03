@@ -30,6 +30,7 @@
 """Rate transition components for multi-rate control loop modeling."""
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Dict
 
 import numpy as np
@@ -42,6 +43,12 @@ from ._validation import (
     _validate_positive,
     _validate_str_non_empty,
 )
+
+
+def _tf_pure_delay(f: np.ndarray, n_delay: int, sps: float) -> np.ndarray:
+    """Analytic delay TF: H(f) = exp(-j * 2π * f * n_delay / sps). Numerically stable."""
+    f = np.asarray(f, dtype=float)
+    return np.exp(-1j * 2 * np.pi * f * n_delay / sps)
 
 
 class DownsampleComponent(Component):
@@ -101,6 +108,7 @@ class DownsampleComponent(Component):
             deno=deno,
             unit=Dimension(dimensionless=True),
         )
+        self._set_tf_delay()
         self.properties = {
             "M": (lambda: self.M, lambda v: setattr(self, "M", v)),
             "include_delay": (
@@ -108,6 +116,12 @@ class DownsampleComponent(Component):
                 lambda v: setattr(self, "include_delay", v),
             ),
         }
+
+    def _set_tf_delay(self) -> None:
+        """Use analytic delay TF for numerical stability."""
+        if self._include_delay and self._M > 1:
+            n_delay = self._M - 1
+            self.TF = partial(_tf_pure_delay, n_delay=n_delay, sps=self.sps)
 
     @property
     def M(self) -> int:
@@ -156,6 +170,7 @@ class DownsampleComponent(Component):
             deno=deno,
             unit=Dimension(dimensionless=True),
         )
+        self._set_tf_delay()
 
 
 class RateTransitionComponent(Component):
@@ -232,6 +247,7 @@ class RateTransitionComponent(Component):
             deno=deno,
             unit=Dimension(dimensionless=True),
         )
+        self._set_tf_delay()
         self.properties = {
             "sps_in": (lambda: self.sps_in, lambda v: setattr(self, "sps_in", v)),
             "sps_out": (lambda: self.sps_out, lambda v: setattr(self, "sps_out", v)),
@@ -240,6 +256,13 @@ class RateTransitionComponent(Component):
                 lambda v: setattr(self, "include_delay", v),
             ),
         }
+
+    def _set_tf_delay(self) -> None:
+        """Use analytic delay TF for numerical stability (avoids polynomial eval)."""
+        if self._include_delay and self._M > 1:
+            n_delay = self._M - 1
+            self.TF = partial(_tf_pure_delay, n_delay=n_delay, sps=self.sps)
+        # else: keep default TF from parent (unity gain)
 
     @property
     def sps_in(self) -> float:
@@ -318,3 +341,4 @@ class RateTransitionComponent(Component):
             deno=deno,
             unit=Dimension(dimensionless=True),
         )
+        self._set_tf_delay()

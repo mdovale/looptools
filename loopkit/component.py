@@ -416,6 +416,10 @@ class Component:
         dB: bool = False,
         deg: bool = True,
         wrap: bool = True,
+        mag_rtol: float = 1e-14,
+        mag_atol: float = 1e-14,
+        phase_rtol: float = 1e-12,
+        phase_atol: float = 1e-12,
     ) -> Tuple[NDArray[Any], NDArray[Any]]:
         """
         Compute the Bode magnitude and phase of the component at given frequencies.
@@ -430,6 +434,10 @@ class Component:
             If True, return phase in degrees. Default is True (radians if False).
         wrap : bool, optional
             If True, wrap phase to [-180, 180] deg or [-π, π] rad. Default is True.
+        mag_rtol, mag_atol : float, optional
+            Tolerance for snapping magnitude near 1 to avoid log10 glitches.
+        phase_rtol, phase_atol : float, optional
+            Tolerance for snapping phase near ±180° to avoid wrap-boundary glitches.
 
         Returns
         -------
@@ -441,8 +449,10 @@ class Component:
         f = np.asarray(frfr)
         val = self.TF(f=f)
 
-        # Compute magnitude
-        mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+        # Compute magnitude (snap near 1 to avoid log10(1±ε) glitches)
+        mag_raw = np.abs(val)
+        mag_raw = np.where(np.isclose(mag_raw, 1.0, rtol=mag_rtol, atol=mag_atol), 1.0, mag_raw)
+        mag = 20 * np.log10(mag_raw) if dB else mag_raw
 
         # Compute phase
         phase = np.angle(val, deg=deg)
@@ -451,6 +461,7 @@ class Component:
         if wrap:
             if deg:
                 phase = (phase + 180) % 360 - 180
+                phase = np.where(np.isclose(np.abs(phase), 180.0, rtol=phase_rtol, atol=phase_atol), -180.0, phase)
             else:
                 phase = (phase + np.pi) % (2 * np.pi) - np.pi
 
@@ -466,6 +477,10 @@ class Component:
         wrap: bool = True,
         axes: Optional[Tuple[plt.Axes, plt.Axes]] = None,
         label: Optional[str] = None,
+        mag_rtol: float = 1e-14,
+        mag_atol: float = 1e-14,
+        phase_rtol: float = 1e-12,
+        phase_atol: float = 1e-12,
         *args: Any,
         **kwargs: Any,
     ) -> Tuple[plt.Axes, plt.Axes]:
@@ -488,6 +503,10 @@ class Component:
             Existing axes to plot into. If None, creates new figure and axes.
         label : str or None
             Label for this component in the plot. If None, uses self.name.
+        mag_rtol, mag_atol : float, optional
+            Tolerance for snapping magnitude near 1 to avoid log10 glitches.
+        phase_rtol, phase_atol : float, optional
+            Tolerance for snapping phase near ±180° to avoid wrap-boundary glitches.
 
         Returns
         -------
@@ -504,10 +523,13 @@ class Component:
 
             val = self.TF(f=f)
 
-            mag = 20 * np.log10(np.abs(val)) if dB else np.abs(val)
+            mag_raw = np.abs(val)
+            mag_raw = np.where(np.isclose(mag_raw, 1.0, rtol=mag_rtol, atol=mag_atol), 1.0, mag_raw)
+            mag = 20 * np.log10(mag_raw) if dB else mag_raw
             phase = np.angle(val, deg=deg)
             if wrap and deg:
                 phase = (phase + 180) % 360 - 180
+                phase = np.where(np.isclose(np.abs(phase), 180.0, rtol=phase_rtol, atol=phase_atol), -180.0, phase)
             elif wrap and not deg:
                 phase = (phase + np.pi) % (2 * np.pi) - np.pi
 
