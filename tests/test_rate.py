@@ -154,10 +154,50 @@ class TestRateTransitionComponent:
         with pytest.raises(ValueError, match="must be an integer"):
             RateTransitionComponent("RT", sps_in=40e6, sps_out=15e6)
 
-    def test_upsample_raises(self):
-        """sps_in < sps_out (upsampling) raises ValueError."""
-        with pytest.raises(ValueError, match="Upsampling.*not yet supported"):
-            RateTransitionComponent("RT", sps_in=20e6, sps_out=40e6)
+    def test_upsample_20_to_40_mhz(self):
+        """20 MHz to 40 MHz upsampling (M=2): DC gain 1, component sps = output rate."""
+        rt = RateTransitionComponent("RT", sps_in=20e6, sps_out=40e6)
+        assert rt.sps_in == 20e6
+        assert rt.sps_out == 40e6
+        assert rt.M == 2
+        assert rt.sps == 40e6  # Component uses output rate for upsampling
+        mag, phase = rt.bode([1.0], dB=True)
+        assert mag[0] == pytest.approx(0.0, abs=0.01)  # DC gain 1 (0 dB)
+        # At Nyquist (20 MHz): ZOH has sinc roll-off
+        mag_nyq, phase_nyq = rt.bode([20e6], dB=True)
+        assert np.isfinite(mag_nyq[0])
+        assert np.isfinite(phase_nyq[0])
+
+    def test_upsample_integer_ratio_required(self):
+        """sps_out/sps_in must be integer for upsampling."""
+        with pytest.raises(ValueError, match="must be an integer"):
+            RateTransitionComponent("RT", sps_in=20e6, sps_out=30e6)
+
+    def test_rate_transition_bidirectional(self):
+        """40→20 and 20→40 both work."""
+        rt_down = RateTransitionComponent("RT", sps_in=40e6, sps_out=20e6)
+        rt_up = RateTransitionComponent("RT", sps_in=20e6, sps_out=40e6)
+        assert rt_down.M == 2
+        assert rt_up.M == 2
+        assert rt_down.sps == 40e6
+        assert rt_up.sps == 40e6
+        frfr = np.logspace(2, 6, 50)
+        mag_d, _ = rt_down.bode(frfr, dB=True)
+        mag_u, _ = rt_up.bode(frfr, dB=True)
+        assert np.all(np.isfinite(mag_d))
+        assert np.all(np.isfinite(mag_u))
+
+    def test_upsample_equivalent_to_downsample_inverse(self):
+        """Cascade down then up gives approximately unity (down 40→20, up 20→40)."""
+        rt_down = RateTransitionComponent("RT", sps_in=40e6, sps_out=20e6)
+        rt_up = RateTransitionComponent("RT", sps_in=20e6, sps_out=40e6)
+        frfr = np.logspace(2, 5, 100)  # Stay below Nyquist at 20 MHz
+        tf_down = rt_down.TF(f=frfr)
+        tf_up = rt_up.TF(f=frfr)
+        cascade = tf_down * tf_up
+        mag = np.abs(cascade)
+        # Cascade should be ~1 at low freq (ZOH up has sinc, down has delay; product ~1)
+        assert mag[0] == pytest.approx(1.0, abs=0.1)
 
     def test_include_delay_false(self):
         """include_delay=False yields pure gain."""

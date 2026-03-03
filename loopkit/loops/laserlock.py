@@ -77,6 +77,7 @@ def _validate_multirate_params(
     ki: float,
     n_reg: int,
     off: Tuple[str, ...],
+    vco_sps: Optional[float] = None,
 ) -> None:
     """Validate MultiRateLaserLock constructor parameters."""
     if not isinstance(sps_loop, (int, float)) or sps_loop <= 0:
@@ -101,8 +102,21 @@ def _validate_multirate_params(
         raise ValueError(f"Ki must be numeric, got {type(ki).__name__}")
     if not isinstance(n_reg, int) or n_reg < 0:
         raise ValueError(f"n_reg must be non-negative int, got {n_reg!r}")
+    if vco_sps is not None:
+        if not isinstance(vco_sps, (int, float)) or vco_sps <= 0:
+            raise ValueError(f"vco_sps must be positive when provided, got {vco_sps!r}")
+        if vco_sps <= sps_loop:
+            raise ValueError(
+                f"vco_sps must be > sps_loop for upsampling. "
+                f"Got vco_sps={vco_sps}, sps_loop={sps_loop}"
+            )
+        vco_ratio = vco_sps / sps_loop
+        if abs(vco_ratio - round(vco_ratio)) > 1e-9:
+            raise ValueError(
+                f"vco_sps/sps_loop must be an integer. Got {vco_ratio}"
+            )
     valid_names = frozenset((
-        "PD", "IIR", "RateTransition", "PIII", "Delay", "DAC",
+        "PD", "IIR", "RateTransition", "Upsample", "PIII", "Delay", "DAC",
         "Laser", "PreGain", "PA", "LUT",
     ))
     for item in off:
@@ -323,6 +337,9 @@ class MultiRateLaserLock(LOOP):
         IIR input scaling. Default 2^-24.
     iir_output_scale : float, optional
         IIR output scaling. Default 2^-14.
+    vco_sps : float, optional
+        VCO path sample rate (e.g. 40e6). When > sps_loop, inserts an upsampler
+        between PreGain and PA; PA and LUT run at vco_sps (Simulink-faithful).
     off : sequence of str, optional
         Component names to exclude.
     name : str, optional
@@ -344,13 +361,14 @@ class MultiRateLaserLock(LOOP):
         n_reg: int = 1,
         iir_input_scale: float = 2**-24,
         iir_output_scale: float = 2**-14,
+        vco_sps: Optional[float] = None,
         off: Optional[Sequence[str]] = None,
         name: Optional[str] = None,
     ) -> None:
         _sps_adc = float(sps_loop) if sps_adc is None else float(sps_adc)
         _off: Tuple[str, ...] = () if off is None else tuple(str(x) for x in off)
         _validate_multirate_params(
-            sps_loop, _sps_adc, Amp, Kp, Ki, n_reg, _off,
+            sps_loop, _sps_adc, Amp, Kp, Ki, n_reg, _off, vco_sps=vco_sps,
         )
 
         super().__init__(sps_loop, name=name or "MultiRateLaserLock")
@@ -365,7 +383,10 @@ class MultiRateLaserLock(LOOP):
         self._pre_gain = float(pre_gain)
         self._off = _off
         self._sos = list(sos) if sos is not None else _DEFAULT_SOS
-        self._multirate = _sps_adc > sps_loop
+        self._multirate = _sps_adc > sps_loop or (
+            vco_sps is not None and vco_sps > sps_loop
+        )
+        self._vco_sps = float(vco_sps) if vco_sps is not None else None
         _plant = Plant if Plant is not None else _default_laser_plant(sps_loop)
 
         # High-rate path (sps_adc): PD, IIR, [RateTransition]
@@ -418,10 +439,18 @@ class MultiRateLaserLock(LOOP):
                 )
             )
 
+        _vco_rate = self._vco_sps if self._vco_sps is not None else sps_loop
+        if self._vco_sps is not None and "Upsample" not in _off:
+            self.add_component(
+                lc.RateTransitionComponent(
+                    "Upsample", sps_in=sps_loop, sps_out=self._vco_sps,
+                )
+            )
+
         if "PA" not in _off:
-            self.add_component(lc.PAComponent("PA", sps_loop))
+            self.add_component(lc.PAComponent("PA", _vco_rate))
         if "LUT" not in _off:
-            self.add_component(lc.LUTComponent("LUT", sps_loop))
+            self.add_component(lc.LUTComponent("LUT", _vco_rate))
 
         if _off:
             logger.warning("MultiRateLaserLock: excluded components: %s", _off)
@@ -473,6 +502,11 @@ class MultiRateLaserLock(LOOP):
     def off(self) -> Tuple[str, ...]:
         """Excluded component names."""
         return self._off
+
+    @property
+    def vco_sps(self) -> Optional[float]:
+        """VCO path sample rate (None if same as sps_loop)."""
+        return self._vco_sps
 
     @property
     def multirate(self) -> bool:
@@ -623,6 +657,7 @@ class MultiRateLaserLock(LOOP):
             dac_gain=self._dac_gain,
             pre_gain=self._pre_gain,
             n_reg=self._n_reg,
+            vco_sps=self._vco_sps,
             off=self._off,
         )
         new_obj.callbacks = self.callbacks

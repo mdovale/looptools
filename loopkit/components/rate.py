@@ -51,6 +51,24 @@ def _tf_pure_delay(f: np.ndarray, n_delay: int, sps: float) -> np.ndarray:
     return np.exp(-1j * 2 * np.pi * f * n_delay / sps)
 
 
+def _tf_zoh_upsample(f: np.ndarray, M: int, sps_out: float) -> np.ndarray:
+    """
+    ZOH upsample TF at output rate sps_out.
+
+    H(f) = exp(-j·π·f·(M-1)/sps_out) · sin(π·f·M/sps_out) / (M·sin(π·f/sps_out))
+    At DC: H(0) = 1. Numerically stable; avoids division by zero at f=0.
+    """
+    f = np.asarray(f, dtype=float)
+    # Avoid division by zero at DC: use limit sin(x)/x -> 1 as x -> 0
+    x = np.pi * f / sps_out
+    x_safe = np.where(np.abs(x) < 1e-12, 1e-12, x)
+    sinc_M = np.sin(M * x_safe) / (M * np.sin(x_safe))
+    # At DC (x=0): sin(M*0)/(M*sin(0)) is 0/0; limit = 1
+    sinc_M = np.where(np.abs(x) < 1e-12, 1.0, sinc_M)
+    phase = np.exp(-1j * np.pi * f * (M - 1) / sps_out)
+    return phase * sinc_M
+
+
 class DownsampleComponent(Component):
     """
     Downsample component: y[n] = x[n*M] (keep every M-th sample).
@@ -179,7 +197,7 @@ class RateTransitionComponent(Component):
 
     When sps_in > sps_out (downsampling): equivalent to DownsampleComponent with
     M = sps_in / sps_out (must be integer). When sps_in < sps_out (upsampling):
-    not yet supported.
+    ZOH upsample with M = sps_out / sps_in (must be integer).
 
     Parameters
     ----------
@@ -199,7 +217,8 @@ class RateTransitionComponent(Component):
     sps_out : float
         Output sample rate.
     M : int
-        Downsample factor (sps_in/sps_out) when downsampling.
+        Downsample factor (sps_in/sps_out) when downsampling, or upsample
+        factor (sps_out/sps_in) when upsampling.
     """
 
     def __init__(
@@ -213,41 +232,28 @@ class RateTransitionComponent(Component):
         sps_in_f = _validate_positive("sps_in", sps_in)
         sps_out_f = _validate_positive("sps_out", sps_out)
 
-        ratio = sps_in_f / sps_out_f
-        if ratio < 1.0:
-            raise ValueError(
-                f"Upsampling (sps_in < sps_out) not yet supported. "
-                f"Got sps_in={sps_in_f}, sps_out={sps_out_f}."
-            )
-        M_int = int(round(ratio))
-        if abs(ratio - M_int) > 1e-9:
-            raise ValueError(
-                f"sps_in/sps_out must be an integer for downsampling. "
-                f"Got {ratio} (sps_in={sps_in_f}, sps_out={sps_out_f})."
-            )
-
         self._sps_in = sps_in_f
         self._sps_out = sps_out_f
-        self._M = M_int
         self._include_delay = bool(include_delay)
+        self._recompute_M()
 
-        # Delegate to DownsampleComponent logic; sps = input rate
         nume = np.array([1.0])
-        if self._include_delay and self._M > 1:
+        deno = np.array([1.0])
+        if not self._is_upsampling and self._include_delay and self._M > 1:
             n_delay = self._M - 1
             deno = np.zeros(n_delay + 1)
             deno[0] = 1.0
-        else:
-            deno = np.array([1.0])
 
+        # Component sps: input rate for downsampling, output rate for upsampling
+        comp_sps = sps_out_f if self._is_upsampling else sps_in_f
         super().__init__(
             name_s,
-            sps_in_f,  # Component operates at input rate
+            comp_sps,
             nume=nume,
             deno=deno,
             unit=Dimension(dimensionless=True),
         )
-        self._set_tf_delay()
+        self._set_tf()
         self.properties = {
             "sps_in": (lambda: self.sps_in, lambda v: setattr(self, "sps_in", v)),
             "sps_out": (lambda: self.sps_out, lambda v: setattr(self, "sps_out", v)),
@@ -257,9 +263,11 @@ class RateTransitionComponent(Component):
             ),
         }
 
-    def _set_tf_delay(self) -> None:
-        """Use analytic delay TF for numerical stability (avoids polynomial eval)."""
-        if self._include_delay and self._M > 1:
+    def _set_tf(self) -> None:
+        """Set TF: downsampling uses analytic delay; upsampling uses ZOH."""
+        if self._is_upsampling:
+            self.TF = partial(_tf_zoh_upsample, M=self._M, sps_out=self._sps_out)
+        elif self._include_delay and self._M > 1:
             n_delay = self._M - 1
             self.TF = partial(_tf_pure_delay, n_delay=n_delay, sps=self.sps)
         # else: keep default TF from parent (unity gain)
@@ -287,21 +295,23 @@ class RateTransitionComponent(Component):
         self.update_component()
 
     def _recompute_M(self) -> None:
-        ratio = self._sps_in / self._sps_out
-        if ratio < 1.0:
-            raise ValueError(
-                "Upsampling not yet supported. sps_in must be >= sps_out."
-            )
+        """Compute M and _is_upsampling; validate integer ratio."""
+        self._is_upsampling = self._sps_in < self._sps_out
+        if self._is_upsampling:
+            ratio = self._sps_out / self._sps_in
+        else:
+            ratio = self._sps_in / self._sps_out
         M_int = int(round(ratio))
         if abs(ratio - M_int) > 1e-9:
             raise ValueError(
-                f"sps_in/sps_out must be an integer. Got {ratio}."
+                f"sps_in/sps_out (or sps_out/sps_in for upsampling) must be "
+                f"an integer. Got ratio {ratio}."
             )
         self._M = M_int
 
     @property
     def M(self) -> int:
-        """Downsample factor (sps_in/sps_out)."""
+        """Downsample factor (sps_in/sps_out) or upsample factor (sps_out/sps_in)."""
         return self._M
 
     @property
@@ -328,17 +338,18 @@ class RateTransitionComponent(Component):
 
     def update_component(self) -> None:
         nume = np.array([1.0])
-        if self._include_delay and self._M > 1:
+        if not self._is_upsampling and self._include_delay and self._M > 1:
             n_delay = self._M - 1
             deno = np.zeros(n_delay + 1)
             deno[0] = 1.0
         else:
             deno = np.array([1.0])
+        comp_sps = self._sps_out if self._is_upsampling else self._sps_in
         super().__init__(
             self.name,
-            self._sps_in,
+            comp_sps,
             nume=nume,
             deno=deno,
             unit=Dimension(dimensionless=True),
         )
-        self._set_tf_delay()
+        self._set_tf()
