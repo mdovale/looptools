@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loopkit"
-version = "1.0.1"
+version = "1.0.2"
 description = "A Python library for modeling, analyzing, and simulating feedback control loops."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"

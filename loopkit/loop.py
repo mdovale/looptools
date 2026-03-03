@@ -47,6 +47,7 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import control
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Circle, Patch
 from numpy.typing import ArrayLike, NDArray
 
 from loopkit import dsp
@@ -809,6 +810,8 @@ coordinate (loop_corner) at (\\n1,\\n2);
         frfr: ArrayLike,
         which: Union[str, Sequence[str]] = "all",
         critical_point: bool = False,
+        unity_gain_circle: bool = False,
+        sensitivity_keepout: Optional[float] = None,
         arrow_scale: float = 1.0,
         arrow_frequency: Optional[float] = None,
         figsize: Tuple[float, float] = (4, 4),
@@ -831,6 +834,14 @@ coordinate (loop_corner) at (\\n1,\\n2);
             Which transfer functions to plot.
         critical_point : bool, optional
             Mark the critical point (-1, 0).
+        unity_gain_circle : bool, optional
+            Overlay the unity-gain circle |L|=1 (centered at origin, radius 1).
+        sensitivity_keepout : float, optional
+            Maximum sensitivity peak M_s (typical targets: 1.4–2.0). When set,
+            draws a keep-out disk centered at -1 with radius 1/M_s. If the
+            Nyquist locus of G enters this disk, the closed-loop sensitivity
+            exceeds M_s at some frequency (less robust). Stays outside implies
+            sensitivity peak ≤ M_s. Default is None (no overlay).
         arrow_scale : float, optional
             Size scale of the directional arrowhead.
         arrow_frequency : float, optional
@@ -854,6 +865,16 @@ coordinate (loop_corner) at (\\n1,\\n2);
         -------
         fig : matplotlib.figure.Figure
         ax : matplotlib.axes.Axes
+
+        Notes
+        -----
+        The sensitivity keep-out zone is the most useful robustness overlay on
+        the Nyquist plot. It directly bounds the worst-case amplification of
+        disturbances and model error (sensitivity S = 1/(1+L)). The clearance
+        is min |1+L(jω)| over frequency; the disk radius 1/M_s ensures that
+        staying outside the disk guarantees max |S| ≤ M_s. This remains
+        well-defined even when phase/gain margins are ambiguous (multiple
+        crossings, nonminimum-phase shapes, etc.).
         """
         with plt.rc_context(default_rc), warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -863,6 +884,43 @@ coordinate (loop_corner) at (\\n1,\\n2);
                 fig = ax.figure
 
             prefix = f"{label}: " if label else ""
+
+            if unity_gain_circle:
+                circle = Circle(
+                    (0, 0), 1,
+                    fill=False,
+                    edgecolor="gray",
+                    linestyle="--",
+                    linewidth=1.0,
+                    zorder=0,
+                )
+                ax.add_patch(circle)
+
+            sensitivity_legend_patch = None
+            if sensitivity_keepout is not None:
+                if sensitivity_keepout <= 0:
+                    raise ValueError(
+                        "sensitivity_keepout must be positive (typical: 1.4–2.0)"
+                    )
+                radius = 1.0 / sensitivity_keepout
+                disk = Circle(
+                    (-1, 0),
+                    radius,
+                    fill=True,
+                    facecolor="lightcoral",
+                    edgecolor="darkred",
+                    alpha=0.35,
+                    linestyle="-",
+                    linewidth=1.0,
+                    zorder=0,
+                )
+                ax.add_patch(disk)
+                sensitivity_legend_patch = Patch(
+                    facecolor="lightcoral",
+                    edgecolor="darkred",
+                    alpha=0.35,
+                    label=f"Sensitivity keep-out (M_s ≤ {sensitivity_keepout})",
+                )
 
             if which == 'all':
                 which = ['G', 'H', 'E']
@@ -928,8 +986,18 @@ coordinate (loop_corner) at (\\n1,\\n2);
             ax.grid(True, which='minor', linestyle='--', linewidth=0.5)
 
             if label is not False:
-                ax.legend(loc='best', edgecolor='black', fancybox=True,
-                        shadow=True, framealpha=1, fontsize=8)
+                handles, labels = ax.get_legend_handles_labels()
+                if sensitivity_legend_patch is not None:
+                    handles = [sensitivity_legend_patch] + handles
+                ax.legend(
+                    handles=handles if handles else None,
+                    loc='best',
+                    edgecolor='black',
+                    fancybox=True,
+                    shadow=True,
+                    framealpha=1,
+                    fontsize=8,
+                )
 
             if title is not None:
                 ax.set_title(title)

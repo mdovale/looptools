@@ -471,6 +471,38 @@ class TestLOOPPlots:
         assert ax is not None
         assert ax.figure is not None
 
+    def test_nyquist_plot_unity_gain_circle(self, loop_single, frequency_array):
+        """nyquist_plot with unity_gain_circle runs without error."""
+        ax = loop_single.nyquist_plot(
+            frequency_array, which="G", figsize=(4, 4), unity_gain_circle=True
+        )
+        assert ax is not None
+        assert ax.figure is not None
+
+    def test_nyquist_plot_sensitivity_keepout(self, loop_single, frequency_array):
+        """nyquist_plot with sensitivity_keepout runs without error."""
+        ax = loop_single.nyquist_plot(
+            frequency_array,
+            which="G",
+            figsize=(4, 4),
+            sensitivity_keepout=1.6,
+        )
+        assert ax is not None
+        assert ax.figure is not None
+
+    def test_nyquist_plot_sensitivity_keepout_invalid_raises(
+        self, loop_single, frequency_array
+    ):
+        """nyquist_plot with sensitivity_keepout <= 0 raises ValueError."""
+        with pytest.raises(ValueError, match="sensitivity_keepout must be positive"):
+            loop_single.nyquist_plot(
+                frequency_array, which="G", sensitivity_keepout=0
+            )
+        with pytest.raises(ValueError, match="sensitivity_keepout must be positive"):
+            loop_single.nyquist_plot(
+                frequency_array, which="G", sensitivity_keepout=-1.0
+            )
+
     def test_nyquist_plot_invalid_which_raises(
         self, loop_single, frequency_array
     ):

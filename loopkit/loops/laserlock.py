@@ -105,16 +105,17 @@ def _validate_multirate_params(
     if vco_sps is not None:
         if not isinstance(vco_sps, (int, float)) or vco_sps <= 0:
             raise ValueError(f"vco_sps must be positive when provided, got {vco_sps!r}")
-        if vco_sps <= sps_loop:
+        if vco_sps < sps_loop:
             raise ValueError(
-                f"vco_sps must be > sps_loop for upsampling. "
+                f"vco_sps must be >= sps_loop. "
                 f"Got vco_sps={vco_sps}, sps_loop={sps_loop}"
             )
-        vco_ratio = vco_sps / sps_loop
-        if abs(vco_ratio - round(vco_ratio)) > 1e-9:
-            raise ValueError(
-                f"vco_sps/sps_loop must be an integer. Got {vco_ratio}"
-            )
+        if vco_sps > sps_loop:
+            vco_ratio = vco_sps / sps_loop
+            if abs(vco_ratio - round(vco_ratio)) > 1e-9:
+                raise ValueError(
+                    f"vco_sps/sps_loop must be an integer. Got {vco_ratio}"
+                )
     valid_names = frozenset((
         "PD", "IIR", "RateTransition", "Upsample", "PIII", "Delay", "DAC",
         "Laser", "PreGain", "PA", "LUT",
@@ -340,6 +341,8 @@ class MultiRateLaserLock(LOOP):
     vco_sps : float, optional
         VCO path sample rate (e.g. 40e6). When > sps_loop, inserts an upsampler
         between PreGain and PA; PA and LUT run at vco_sps (Simulink-faithful).
+        When vco_sps == sps_loop, the loop is single-rate and the rate transition
+        is skipped.
     off : sequence of str, optional
         Component names to exclude.
     name : str, optional
@@ -440,7 +443,11 @@ class MultiRateLaserLock(LOOP):
             )
 
         _vco_rate = self._vco_sps if self._vco_sps is not None else sps_loop
-        if self._vco_sps is not None and "Upsample" not in _off:
+        if (
+            self._vco_sps is not None
+            and self._vco_sps > sps_loop
+            and "Upsample" not in _off
+        ):
             self.add_component(
                 lc.RateTransitionComponent(
                     "Upsample", sps_in=sps_loop, sps_out=self._vco_sps,

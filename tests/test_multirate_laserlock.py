@@ -102,13 +102,8 @@ class TestMultiRateLaserLockValidation:
             MultiRateLaserLock(sps_loop=20e6, Amp=AMP, Kp=KP, Ki=KI, sps_adc=30e6)
 
     def test_vco_sps_lt_sps_loop_raises(self):
-        """vco_sps <= sps_loop raises ValueError."""
-        with pytest.raises(ValueError, match="vco_sps must be > sps_loop"):
-            MultiRateLaserLock(
-                sps_loop=SPS_LOOP, Amp=AMP, Kp=KP, Ki=KI,
-                vco_sps=20e6,
-            )
-        with pytest.raises(ValueError, match="vco_sps must be > sps_loop"):
+        """vco_sps < sps_loop raises ValueError."""
+        with pytest.raises(ValueError, match="vco_sps must be >= sps_loop"):
             MultiRateLaserLock(
                 sps_loop=SPS_LOOP, Amp=AMP, Kp=KP, Ki=KI,
                 vco_sps=10e6,
@@ -181,6 +176,20 @@ class TestMultiRateLaserLockConstruction:
         assert upsample.sps_out == 40e6
         pa = multirate_vco_40.components_dict["PA"]
         assert pa.sps == 40e6
+
+    def test_construction_vco_sps_eq_sps_loop_skips_upsample(self):
+        """When vco_sps == sps_loop, loop is single-rate and skips Upsample."""
+        pll = MultiRateLaserLock(
+            sps_loop=SPS_LOOP, Amp=AMP, Kp=KP, Ki=KI,
+            vco_sps=SPS_LOOP,
+            off=["Laser"],
+        )
+        names = set(pll.components_dict.keys())
+        assert "Upsample" not in names
+        assert pll.vco_sps == SPS_LOOP
+        assert not pll.multirate
+        pa = pll.components_dict["PA"]
+        assert pa.sps == SPS_LOOP
 
     def test_construction_stores_parameters(self, multirate_default):
         """MultiRateLaserLock stores constructor parameters."""
